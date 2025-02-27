@@ -1,0 +1,29 @@
+{
+  admin 127.0.0.1:2020  # 将管理端口从默认的2019改为2020
+  https_port 8443  # 更改默认 HTTPS 端口
+}
+
+wckrr.tianxyousa.com {
+    # 转发 API 请求到 FastAPI 后端
+    handle /api/* {
+        reverse_proxy localhost:8000
+    }
+    
+    # 提供静态文件
+    handle /assets/* {
+        root * .
+        file_server
+    }
+    
+    # 其他所有请求都提供静态文件
+    handle {
+        root * ./static
+        try_files {path} /index.html
+        file_server
+    }
+    
+    # 日志设置
+    log {
+        output file logs/caddy.log
+    }
+}

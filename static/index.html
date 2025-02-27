@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>蛙动静</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="favicon.png" type="image/png">
+</head>
+<body>
+    <div class="container">
+        <h1>蛙动静</h1>
+        <p>欢迎来到蛙动静，这里是一个专门记录小蛙动静的网站</p>
+        <nav>
+            <ul>
+                <li><a href="https://space.bilibili.com/613345189/">关注蛙吹keroro喵</a></li>
+            </ul>
+        </nav>
+        <div class="audio-list-section">
+            <div class="category-filter">
+                <label for="filterCategory">按分类筛选:</label>
+                <select id="filterCategory">
+                    <option value="">全部</option>
+                    <!-- 将通过JS动态填充 -->
+                </select>
+            </div>
+            <div id="audioList" class="audio-categories"></div>
+        </div>
+
+        <div class="upload-section">
+            <h2>上传音频</h2>
+            <form id="uploadForm" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="audioFile">选择音频文件</label>
+                    <input type="file" id="audioFile" accept=".mp3,.wav,.ogg" required>
+                </div>
+                <div class="form-group">
+                    <label for="category">选择分类</label>
+                    <select id="category" name="category">
+                        <!-- 将通过JS动态填充 -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="password">上传密码</label>
+                    <input type="password" id="password" required>
+                </div>
+                <button type="submit">上传</button>
+            </form>
+            <div id="uploadStatus"></div>
+        </div>
+        
+        <footer>
+            <p>&copy; 2025 蛙动静</p>
+        </footer>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

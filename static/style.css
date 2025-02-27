@@ -1,0 +1,207 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    margin: 0; /* 确保没有边距 */
+    padding: 0; /* 确保没有内边距 */
+}
+
+body {
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background-color: #f5f5f5; /* 作为备用背景色 */
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh; /* 至少占满视口高度 */
+    background-image: url('background.png');
+    background-size: cover; /* 覆盖整个区域 */
+    background-repeat: no-repeat;
+    background-position: center;
+    background-attachment: fixed; /* 固定背景，滚动时不动 */
+}
+
+.container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px;
+    /* 其他样式保持不变 */
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 30px;
+    color: #2c3e50;
+}
+
+h2 {
+    margin-bottom: 15px;
+    color: #3498db;
+}
+
+/* 各个主要区块设置为更透明 */
+.upload-section, .audio-list-section {
+    background-color: rgba(255, 255, 255, 0.5); /* 50%不透明度 */
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 30px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+#uploadForm {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+button {
+    background-color: rgba(52, 152, 219, 0.8); /* 半透明蓝色 */
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+
+button:hover {
+    background-color: rgba(41, 128, 185, 0.9); /* 悬停时更不透明 */
+    transform: translateY(-2px);
+}
+
+
+.audio-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.audio-item {
+    background-color: rgba(249, 249, 249, 0.5); /* 半透明的背景 */
+    border: 1px solid rgba(221, 221, 221, 0.5);
+    border-radius: 6px;
+    padding: 15px;
+    text-align: center;
+}
+
+/* 表单元素 */
+input, select {
+    background-color: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(221, 221, 221, 0.8);
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.audio-title {
+    margin-bottom: 10px;
+    word-break: break-all;
+    font-size: 14px;
+}
+
+#uploadStatus {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+.success {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.error {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+/* 添加到原有的CSS末尾 */
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.category-filter {
+    margin-bottom: 15px;
+}
+
+.audio-categories {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* 分类区块 */
+.category-section {
+    background-color: rgba(245, 245, 245, 0.6);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+.category-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #2c3e50;
+    border-bottom: 2px solid #3498db;
+    padding-bottom: 5px;
+}
+
+/* 修改按钮样式以适应显示文件名 */
+.play-button {
+    background-color: rgba(52, 152, 219, 0.7);
+    color: white;
+    border: none;
+    padding: 12px 15px;
+    text-align: center;
+    display: block;
+    font-size: 14px;
+    margin: 8px 0;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.3s;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.play-button:hover {
+    background-color: rgba(41, 128, 185, 0.9);
+    transform: scale(1.03);
+}
+
+.play-button:active {
+    background-color: #1c6ea4;
+    transform: scale(0.98);
+}
+
+.audio-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+}
+
+/* 页脚样式 */
+footer {
+    background-color: transparent;
+    padding: 1em;
+    text-align: center;
+    margin-top: 30px;
+    border-top: 1px solid #eee;
+    color: #666;
+    font-size: 0.9em;
+}
+
+footer p {
+    margin: 0;
+}

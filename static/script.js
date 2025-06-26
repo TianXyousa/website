@@ -181,4 +181,32 @@ document.addEventListener('DOMContentLoaded', function() {
         audio.play();
         window.currentAudio = audio;
     }
+
+    // 状态显示函数
+    function showStatus(message, type = 'info') {
+        // 获取状态显示元素
+        const statusElement = document.getElementById('status-container');
+        
+        if (!statusElement) {
+            console.error('状态显示元素不存在');
+            return;
+        }
+        
+        // 清除之前的状态类
+        statusElement.className = 'status';
+        
+        // 添加新的状态类型
+        statusElement.classList.add(`status-${type}`);
+        
+        // 设置消息内容
+        statusElement.textContent = message;
+        
+        // 显示状态元素
+        statusElement.style.display = 'block';
+        
+        // 5秒后自动隐藏
+        setTimeout(() => {
+            statusElement.style.display = 'none';
+        }, 5000);
+    }
 });

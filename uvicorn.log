@@ -29,3 +29,18 @@ INFO:     130.102.13.254:0 - "GET / HTTP/1.1" 304 Not Modified
 INFO:     130.102.13.254:0 - "GET /script.js HTTP/1.1" 304 Not Modified
 INFO:     130.102.13.254:0 - "GET /api/categories HTTP/1.1" 200 OK
 INFO:     130.102.13.254:0 - "GET /api/audio-list HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "GET / HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "GET /style.css HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "GET /script.js HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "GET /background.png HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "GET /api/audio-list HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "GET /api/categories HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "GET /favicon.png HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "GET / HTTP/1.1" 304 Not Modified
+INFO:     130.102.13.254:0 - "GET /style.css HTTP/1.1" 304 Not Modified
+INFO:     130.102.13.254:0 - "GET /script.js HTTP/1.1" 304 Not Modified
+INFO:     130.102.13.254:0 - "GET /api/categories HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "GET /api/audio-list HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "POST /api/upload-audio HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "GET /api/audio-list HTTP/1.1" 200 OK
+INFO:     130.102.13.254:0 - "GET /assets/audio/%E5%B0%8F%E8%9B%99%E6%8B%9B%E5%91%BC/Test.mp3 HTTP/1.1" 206 Partial Content

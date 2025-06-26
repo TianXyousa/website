@@ -73,27 +73,75 @@ document.addEventListener('DOMContentLoaded', function() {
     // 上传音频函数
     async function uploadAudio(formData, password) {
         try {
-            showStatus('上传中...', '');
+            // 创建进度条UI
+            uploadStatus.innerHTML = `
+                <div class="progress-text">准备上传...</div>
+                <div class="progress-container">
+                    <div class="progress-bar"></div>
+                </div>
+            `;
             
-            const response = await fetch('/api/upload-audio', {
-                method: 'POST',
-                headers: {
-                    'X-API-Key': password
-                },
-                body: formData
+            // 获取进度条元素
+            const progressBar = uploadStatus.querySelector('.progress-bar');
+            const progressText = uploadStatus.querySelector('.progress-text');
+            
+            // 使用XMLHttpRequest来获取进度
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                
+                xhr.upload.addEventListener('progress', (event) => {
+                    if (event.lengthComputable) {
+                        const progress = Math.round((event.loaded / event.total) * 100);
+                        // 更新进度条
+                        progressBar.style.width = `${progress}%`;
+                        // 更新文字
+                        progressText.textContent = `上传中: ${progress}%`;
+                    }
+                });
+                
+                xhr.addEventListener('load', () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            progressText.textContent = `文件 ${data.filename} 上传成功！`;
+                            progressBar.style.width = '100%';
+                            progressBar.style.backgroundColor = '#4caf50';
+                            
+                            uploadForm.reset();
+                            setTimeout(() => {
+                                loadAudioList(); // 重新加载音频列表
+                            }, 1000);
+                            
+                            resolve(data);
+                        } catch (e) {
+                            progressText.textContent = '上传成功，但解析响应失败';
+                            reject(e);
+                        }
+                    } else {
+                        let errorMsg = '上传失败';
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            errorMsg = data.message || '密码错误';
+                        } catch (e) {}
+                        
+                        progressText.textContent = `上传失败: ${errorMsg}`;
+                        progressBar.style.backgroundColor = '#f44336';
+                        reject(new Error(errorMsg));
+                    }
+                });
+                
+                xhr.addEventListener('error', () => {
+                    progressText.textContent = '网络错误，上传失败';
+                    progressBar.style.backgroundColor = '#f44336';
+                    reject(new Error('Network error'));
+                });
+                
+                xhr.open('POST', '/api/upload-audio');
+                xhr.setRequestHeader('X-API-Key', password);
+                xhr.send(formData);
             });
-            
-            const data = await response.json();
-            
-            if (response.ok) {
-                showStatus(`文件 ${data.filename} 上传成功！`, 'success');
-                uploadForm.reset();
-                loadAudioList(); // 重新加载音频列表
-            } else {
-                showStatus(`上传失败: ${data.message || '密码错误'}`, 'error');
-            }
         } catch (error) {
-            showStatus(`上传错误: ${error.message}`, 'error');
+            uploadStatus.innerHTML = `<div class="progress-text">上传错误: ${error.message}</div>`;
         }
     }
     

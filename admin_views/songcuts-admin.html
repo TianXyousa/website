@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>歌切后台管理</title>
+    <link rel="stylesheet" href="/songcuts.css">
+    <link rel="icon" href="/favicon.png" type="image/png">
+</head>
+<body>
+    <main class="page-shell">
+        <section class="hero-card">
+            <p class="eyebrow">Songcuts Admin</p>
+            <h1>歌切后台管理</h1>
+            <p class="hero-copy">这里用于配置 BililiveRecorder、导入录播并自动提取完整翻唱。这个后台页面不会出现在公开播放器里。</p>
+            <div class="hero-actions">
+                <a class="chip-link" href="/songcuts.html">查看公开播放器</a>
+                <form method="post" action="/admin/logout">
+                    <button type="submit" class="secondary-button">退出后台</button>
+                </form>
+            </div>
+        </section>
+
+        <section class="player-layout">
+            <div class="panel now-playing-panel">
+                <div class="panel-heading">
+                    <p class="panel-kicker">Now Playing</p>
+                    <h2 id="currentTitle">还没有开始播放</h2>
+                    <p id="currentMeta" class="current-meta">先从右侧歌单中点一首，或者先在下面导入新的录播。</p>
+                </div>
+
+                <audio id="mainPlayer" class="main-player" controls preload="metadata"></audio>
+
+                <div class="player-actions">
+                    <button id="prevButton" type="button">上一首</button>
+                    <button id="toggleButton" type="button">播放 / 暂停</button>
+                    <button id="nextButton" type="button">下一首</button>
+                    <button id="randomButton" type="button">随机播放</button>
+                </div>
+
+                <div class="player-mode-bar">
+                    <div class="field">
+                        <label for="playbackMode">播放结束后</label>
+                        <select id="playbackMode">
+                            <option value="pause">暂停</option>
+                            <option value="next">自动下一首</option>
+                            <option value="random">随机播放</option>
+                        </select>
+                    </div>
+                    <p id="modeHint" class="mode-hint">当前模式：播完暂停</p>
+                </div>
+
+                <section class="card brec-card">
+                    <div class="card-heading">
+                        <div>
+                            <p class="panel-kicker">BililiveRecorder</p>
+                            <h3>录播姬直连</h3>
+                        </div>
+                        <div class="card-actions">
+                            <button id="saveBrecConfigButton" type="button">保存配置</button>
+                            <button id="refreshBrecButton" type="button" class="secondary-button">刷新状态</button>
+                        </div>
+                    </div>
+
+                    <div class="extract-form">
+                        <div class="field">
+                            <label for="brecApiUrlInput">录播姬 API 地址</label>
+                            <input id="brecApiUrlInput" type="text" placeholder="例如 http://127.0.0.1:2356">
+                        </div>
+
+                        <div class="field">
+                            <label for="brecWorkdirInput">录播姬工作目录</label>
+                            <input id="brecWorkdirInput" type="text" placeholder="录播姬保存录播文件的目录">
+                        </div>
+
+                        <div class="field">
+                            <label for="brecUsernameInput">API 用户名（可选）</label>
+                            <input id="brecUsernameInput" type="text" placeholder="如果录播姬开启了 Basic Auth">
+                        </div>
+
+                        <div class="field">
+                            <label for="brecPasswordInput">API 密码（可选）</label>
+                            <input id="brecPasswordInput" type="password" placeholder="如果录播姬开启了 Basic Auth">
+                        </div>
+
+                        <div class="field">
+                            <label for="brecWebhookSecretInput">Webhook Secret（可选）</label>
+                            <input id="brecWebhookSecretInput" type="text" placeholder="用于保护 /api/brec/webhook">
+                        </div>
+
+                        <div class="field">
+                            <label for="brecAutoCategoryInput">自动导入分类</label>
+                            <input id="brecAutoCategoryInput" type="text" value="录播姬自动提取" placeholder="录播姬自动提取">
+                        </div>
+
+                        <div class="field checkbox-field field-full">
+                            <label class="checkbox-label">
+                                <input id="brecAutoExtractInput" type="checkbox">
+                                <span>接收 FileClosed webhook 后自动提取歌切</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div id="brecStatus" class="status-box">等待读取 BililiveRecorder 配置。</div>
+                    <div id="brecWebhookBox" class="mini-list" hidden></div>
+                    <div id="brecRooms" class="mini-list" hidden></div>
+                    <div id="brecRecordings" class="mini-list" hidden></div>
+                </section>
+
+                <section class="card extractor-card">
+                    <div class="card-heading">
+                        <div>
+                            <p class="panel-kicker">Manual</p>
+                            <h3>手动上传录播提取</h3>
+                        </div>
+                        <p id="ffmpegHint" class="helper-text">正在检查 ffmpeg...</p>
+                    </div>
+
+                    <form id="extractForm" class="extract-form">
+                        <div class="field field-full">
+                            <label for="sourceFileInput">直播录播文件</label>
+                            <input id="sourceFileInput" type="file" accept=".mp3,.wav,.ogg,.m4a,.flac,.aac,.mp4,.mkv,.mov,.webm,.ts,.m4v,.flv">
+                        </div>
+
+                        <div class="field">
+                            <label for="categoryInput">保存分类</label>
+                            <input id="categoryInput" type="text" list="categorySuggestions" value="自动提取" placeholder="例如 2026-03 直播歌切">
+                            <datalist id="categorySuggestions"></datalist>
+                        </div>
+
+                        <div class="field">
+                            <label for="outputFormatSelect">输出格式</label>
+                            <select id="outputFormatSelect">
+                                <option value="mp3">MP3</option>
+                                <option value="wav">WAV</option>
+                                <option value="m4a">M4A</option>
+                                <option value="flac">FLAC</option>
+                            </select>
+                        </div>
+
+                        <div class="field">
+                            <label for="minDurationInput">最短唱段秒数</label>
+                            <input id="minDurationInput" type="number" min="15" step="1" value="60">
+                        </div>
+
+                        <div class="field">
+                            <label for="maxSilenceInput">允许停顿秒数</label>
+                            <input id="maxSilenceInput" type="number" min="0.3" step="0.1" value="2.8">
+                        </div>
+
+                        <div class="field">
+                            <label for="leadingPaddingInput">前置补秒</label>
+                            <input id="leadingPaddingInput" type="number" min="0" step="0.1" value="1.5">
+                        </div>
+
+                        <div class="field">
+                            <label for="trailingPaddingInput">后置补秒</label>
+                            <input id="trailingPaddingInput" type="number" min="0" step="0.1" value="2.5">
+                        </div>
+
+                        <div class="field">
+                            <label for="activeRatioInput">最小活跃占比</label>
+                            <input id="activeRatioInput" type="number" min="0.1" max="0.95" step="0.01" value="0.58">
+                        </div>
+
+                        <div class="field">
+                            <label for="ffmpegPathInput">ffmpeg 路径（可选）</label>
+                            <input id="ffmpegPathInput" type="text" placeholder="留空则自动查找，例如 D:\tools\ffmpeg\bin\ffmpeg.exe">
+                        </div>
+
+                        <div class="field field-full">
+                            <button id="extractButton" type="submit">开始手动提取</button>
+                        </div>
+                    </form>
+
+                    <div id="extractStatus" class="status-box">等待上传直播录播文件。</div>
+                    <div id="extractResults" class="extract-results" hidden></div>
+                </section>
+            </div>
+
+            <div class="panel playlist-panel">
+                <div class="toolbar">
+                    <div class="field">
+                        <label for="categoryFilter">分类</label>
+                        <select id="categoryFilter">
+                            <option value="">全部分类</option>
+                        </select>
+                    </div>
+
+                    <div class="field field-search">
+                        <label for="searchInput">搜索</label>
+                        <input id="searchInput" type="search" placeholder="输入歌名、文件名或分类">
+                    </div>
+                </div>
+
+                <div class="playlist-header">
+                    <h2>歌切列表</h2>
+                    <p id="resultSummary">正在加载歌切...</p>
+                </div>
+
+                <div id="emptyState" class="empty-state" hidden>
+                    <p>当前还没有歌切文件。</p>
+                    <p>可以手动上传录播，或者让 BililiveRecorder 录完后自动导入。</p>
+                </div>
+
+                <div id="songList" class="song-list"></div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/songcuts-admin.js"></script>
+</body>
+</html>

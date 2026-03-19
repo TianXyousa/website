@@ -1,0 +1,43 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>歌切后台登录</title>
+    <link rel="stylesheet" href="/songcuts.css">
+    <link rel="icon" href="/favicon.png" type="image/png">
+</head>
+<body>
+    <main class="page-shell">
+        <section class="hero-card">
+            <p class="eyebrow">Admin Login</p>
+            <h1>歌切后台</h1>
+            <p class="hero-copy">只有管理员登录后，才能看到录播姬配置、录播导入和自动提取页面。</p>
+        </section>
+
+        <section class="panel" style="max-width: 560px; margin: 0 auto;">
+            <form method="post" action="/admin/login" class="extract-form">
+                <div class="field field-full">
+                    <label for="username">管理员用户名</label>
+                    <input id="username" name="username" type="text" value="admin" required autofocus>
+                </div>
+                <div class="field field-full">
+                    <label for="password">管理员密码</label>
+                    <input id="password" name="password" type="password" required>
+                </div>
+                <div class="field field-full">
+                    <button type="submit">进入后台</button>
+                </div>
+            </form>
+            <p id="loginError" class="helper-text" hidden>用户名或密码错误，请重试。</p>
+        </section>
+    </main>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("error")) {
+            document.getElementById("loginError").hidden = false;
+        }
+    </script>
+</body>
+</html>

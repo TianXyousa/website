@@ -1,0 +1,38 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: songcuts-app
+    restart: unless-stopped
+    environment:
+      ADMIN_USERNAME: admin
+      UPLOAD_PASSWORD: "Zh030226@"
+      BREC_CONFIG_PATH: /app_data/.brec_integration.json
+      BREC_DEFAULT_API_BASE_URL: http://recorder:2356
+      BREC_DEFAULT_WORKDIR: /recorder-data
+      BREC_DEFAULT_API_USERNAME: admin
+      BREC_DEFAULT_API_PASSWORD: "Zh030226@"
+      BREC_DEFAULT_AUTO_CATEGORY: 录播姬自动提取
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./assets:/app/assets
+      - ./logs:/app/logs
+      - ./data/app:/app_data
+      - ./data/recorder:/recorder-data
+    depends_on:
+      - recorder
+
+  recorder:
+    image: bililive/recorder:latest
+    container_name: bililive-recorder
+    restart: unless-stopped
+    command: ["run", "--bind", "http://*:2356", "/rec"]
+    environment:
+      BREC_HTTP_BASIC_USER: admin
+      BREC_HTTP_BASIC_PASS: "Zh030226@"
+    ports:
+      - "127.0.0.1:2356:2356"
+    volumes:
+      - ./data/recorder:/rec

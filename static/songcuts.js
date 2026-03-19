@@ -59,13 +59,12 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        const mode = playbackMode.value;
-        if (mode === "next") {
+        if (playbackMode.value === "next") {
             playRelative(1);
             return;
         }
 
-        if (mode === "random") {
+        if (playbackMode.value === "random") {
             playRandomSong();
         }
     }
@@ -105,7 +104,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function populateCategories(songs) {
-        const categories = [...new Set(songs.map((song) => song.category))].sort((left, right) => left.localeCompare(right, "zh-CN"));
+        const categories = [...new Set(songs.map((song) => song.category))]
+            .sort((left, right) => left.localeCompare(right, "zh-CN"));
         const currentValue = categoryFilter.value;
 
         categoryFilter.innerHTML = '<option value="">全部分类</option>';
@@ -128,12 +128,10 @@ document.addEventListener("DOMContentLoaded", () => {
         filteredSongs = allSongs.filter((song) => {
             const matchCategory = !selectedCategory || song.category === selectedCategory;
             const haystack = `${song.title} ${song.filename} ${song.category}`.toLocaleLowerCase();
-            const matchKeyword = !keyword || haystack.includes(keyword);
-            return matchCategory && matchKeyword;
+            return matchCategory && (!keyword || haystack.includes(keyword));
         });
 
         renderSongList();
-
         resultSummary.textContent = filteredSongs.length === allSongs.length
             ? `共 ${allSongs.length} 首歌切`
             : `筛选后 ${filteredSongs.length} / ${allSongs.length} 首歌切`;
@@ -153,7 +151,6 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!accumulator[song.category]) {
                 accumulator[song.category] = [];
             }
-
             accumulator[song.category].push(song);
             return accumulator;
         }, {});
@@ -211,7 +208,7 @@ document.addEventListener("DOMContentLoaded", () => {
             await player.play();
         } catch (error) {
             console.error("播放失败:", error);
-            currentMeta.textContent = "浏览器阻止了自动播放，请再点一次播放按钮";
+            currentMeta.textContent = "浏览器阻止了自动播放，请再点一次播放。";
         }
     }
 

@@ -12,12 +12,9 @@
         <section class="hero-card">
             <p class="eyebrow">Songcuts Player</p>
             <h1>主播歌切播放器</h1>
-            <p class="hero-copy">
-                这里是单独的歌切播放页。你可以按分类筛选、搜索曲目、直接播放，也可以把新的歌切文件放进目录里让页面自动识别。
-            </p>
+            <p class="hero-copy">这里是公开歌切播放页，可以按分类筛选、搜索并播放已经整理好的歌切。</p>
             <div class="hero-actions">
                 <a class="chip-link" href="/">返回主页</a>
-                <a class="chip-link" href="https://space.bilibili.com/613345189/" target="_blank" rel="noreferrer">主播主页</a>
             </div>
         </section>
 
@@ -26,7 +23,7 @@
                 <div class="panel-heading">
                     <p class="panel-kicker">Now Playing</p>
                     <h2 id="currentTitle">还没有开始播放</h2>
-                    <p id="currentMeta" class="current-meta">先从右侧歌单里点一首歌切试试</p>
+                    <p id="currentMeta" class="current-meta">先从右侧歌单中点一首试试。</p>
                 </div>
 
                 <audio id="mainPlayer" class="main-player" controls preload="metadata"></audio>
@@ -35,7 +32,7 @@
                     <button id="prevButton" type="button">上一首</button>
                     <button id="toggleButton" type="button">播放 / 暂停</button>
                     <button id="nextButton" type="button">下一首</button>
-                    <button id="randomButton" type="button">随机来一首</button>
+                    <button id="randomButton" type="button">随机播放</button>
                 </div>
 
                 <div class="player-mode-bar">
@@ -51,9 +48,8 @@
                 </div>
 
                 <div class="tips-card">
-                    <h3>如何添加新的歌切</h3>
-                    <p>把音频文件放到 <code>assets/songcuts/分类名/你的歌切文件.mp3</code> 下面，这个页面刷新后就会自动出现。</p>
-                    <p>支持的格式：<code>mp3</code>、<code>wav</code>、<code>ogg</code>、<code>m4a</code>、<code>flac</code>、<code>aac</code>。</p>
+                    <h3>歌切说明</h3>
+                    <p>这里展示的是已经整理完成的歌切内容。管理配置、录播导入和自动提取不在公开页面展示。</p>
                 </div>
             </div>
 
@@ -68,7 +64,7 @@
 
                     <div class="field field-search">
                         <label for="searchInput">搜索</label>
-                        <input id="searchInput" type="search" placeholder="输入歌名或文件名">
+                        <input id="searchInput" type="search" placeholder="输入歌名、文件名或分类">
                     </div>
                 </div>
 
@@ -79,7 +75,6 @@
 
                 <div id="emptyState" class="empty-state" hidden>
                     <p>当前还没有歌切文件。</p>
-                    <p>你可以先把文件放进 <code>assets/songcuts</code> 目录。</p>
                 </div>
 
                 <div id="songList" class="song-list"></div>

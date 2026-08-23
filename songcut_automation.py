@@ -10,13 +10,14 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from tempfile import mkdtemp
+from tempfile import TemporaryDirectory, mkdtemp
 from typing import Any, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
@@ -96,6 +97,65 @@ def _python_module_available(module_name: str) -> bool:
         return False
 
 
+# Keep Windows CUDA wheels usable by CTranslate2.  The NVIDIA Python wheels
+# install DLLs under ``site-packages/nvidia/*/bin`` but do not put those
+# directories on PATH.  CTranslate2 can still enumerate the GPU in that
+# state, yet the first Whisper inference fails with ``cublas64_12.dll is not
+# found``.  ``os.add_dll_directory`` is the supported Windows loader hook;
+# retain the handles for the lifetime of the process.
+_CUDA_DLL_DIRECTORY_HANDLES: list[Any] = []
+_CUDA_DLL_DIRECTORIES_REGISTERED: set[str] = set()
+
+
+def _configure_cuda_runtime() -> list[str]:
+    """Register pip-installed NVIDIA DLL directories before importing Whisper.
+
+    This is intentionally best-effort and platform-gated.  Linux containers
+    already expose CUDA libraries through the dynamic linker, while CPU-only
+    installs simply return an empty list and continue as before.
+    """
+
+    if os.name != "nt" or not hasattr(os, "add_dll_directory"):
+        return []
+
+    candidates: list[Path] = []
+    site_roots = [Path(sys.prefix) / "Lib" / "site-packages"]
+    try:
+        import site
+
+        site_roots.extend(Path(item) for item in site.getsitepackages())
+    except Exception:
+        pass
+
+    seen: set[str] = set()
+    for root in site_roots:
+        nvidia_root = root / "nvidia"
+        if not nvidia_root.is_dir():
+            continue
+        candidates.extend(sorted(nvidia_root.glob("*/bin")))
+
+    registered: list[str] = []
+    path_entries = [entry for entry in os.environ.get("PATH", "").split(os.pathsep) if entry]
+    path_keys = {entry.casefold() for entry in path_entries}
+    for directory in candidates:
+        key = str(directory.resolve()).casefold()
+        if key in seen or key in _CUDA_DLL_DIRECTORIES_REGISTERED or not directory.is_dir():
+            continue
+        seen.add(key)
+        try:
+            _CUDA_DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(str(directory)))
+            _CUDA_DLL_DIRECTORIES_REGISTERED.add(key)
+            registered.append(str(directory))
+            if key not in path_keys:
+                path_entries.insert(0, str(directory))
+                path_keys.add(key)
+        except OSError:
+            continue
+    if registered:
+        os.environ["PATH"] = os.pathsep.join(path_entries)
+    return registered
+
+
 def parse_float_env(name: str, default: float) -> float:
     value = os.getenv(name)
     if value is None:
@@ -114,6 +174,28 @@ def parse_int_env(name: str, default: int) -> int:
         return int(value)
     except ValueError:
         return default
+
+
+def describe_whisper_runtime() -> dict[str, Any]:
+    """Report the Whisper device that is requested and currently usable."""
+
+    requested = (os.getenv("SONGCUT_WHISPER_DEVICE", "auto").strip().lower() or "auto")
+    compute_type = os.getenv("SONGCUT_WHISPER_COMPUTE_TYPE", "").strip()
+    cuda_device_count = 0
+    try:
+        _configure_cuda_runtime()
+        import ctranslate2
+
+        cuda_device_count = max(0, int(ctranslate2.get_cuda_device_count()))
+    except Exception:
+        pass
+    return {
+        "device_requested": requested,
+        "device_resolved": _WHISPER_DEVICE_RESOLVED,
+        "compute_type": compute_type or ("float16" if requested in {"auto", "cuda"} else "int8"),
+        "cuda_device_count": cuda_device_count,
+        "cuda_available": cuda_device_count > 0,
+    }
 
 
 def describe_recognition_provider() -> dict[str, Any]:
@@ -149,6 +231,7 @@ def describe_recognition_provider() -> dict[str, Any]:
             "enabled": parse_bool_env("SONGCUT_LYRIC_RECOGNITION_ENABLED", True),
             "whisper_model": os.getenv("SONGCUT_WHISPER_MODEL", "medium").strip() or "small",
             "whisper_available": _python_module_available("faster_whisper"),
+            **describe_whisper_runtime(),
             "min_match": parse_float_env("SONGCUT_LYRIC_MIN_MATCH", 0.55),
             "max_windows": max(1, parse_int_env("SONGCUT_LYRIC_MAX_WINDOWS", 4)),
             "window_seconds": max(20.0, parse_float_env("SONGCUT_LYRIC_WINDOW_SECONDS", 45.0)),
@@ -1403,6 +1486,7 @@ def _get_whisper_model() -> Any:
     if _WHISPER_MODEL is not None:
         return _WHISPER_MODEL or None
 
+    _configure_cuda_runtime()
     try:
         from faster_whisper import WhisperModel
     except Exception:
@@ -1425,6 +1509,11 @@ def _get_whisper_model() -> Any:
         if model is not None and _cuda_model_self_check(model):
             _WHISPER_MODEL = model
             _WHISPER_DEVICE_RESOLVED = "cuda"
+            print(
+                f"[songcuts] whisper ready: model={name}, device=cuda, "
+                f"compute_type={compute_type or 'float16'}",
+                flush=True,
+            )
             return model
         # Broken CUDA runtime (e.g. missing cuBLAS): inference there hangs or
         # crashes instead of raising at load time, so fall back to CPU.
@@ -1433,6 +1522,12 @@ def _get_whisper_model() -> Any:
 
     _WHISPER_MODEL = _load_whisper(WhisperModel, name, "cpu", compute_type or "int8")
     _WHISPER_DEVICE_RESOLVED = "cpu" if _WHISPER_MODEL is not None else ""
+    if _WHISPER_MODEL is not None:
+        print(
+            f"[songcuts] whisper ready: model={name}, device=cpu, "
+            f"compute_type={compute_type or 'int8'}",
+            flush=True,
+        )
     return _WHISPER_MODEL
 
 
@@ -1454,31 +1549,31 @@ def _cuda_model_self_check(model: Any, timeout_seconds: float = 60.0) -> bool:
     import threading
 
     try:
-        with mkdtemp(prefix="whisper-probe-") as _tmp:
+        with TemporaryDirectory(prefix="whisper-probe-") as _tmp:
             probe_path = Path(_tmp) / "probe.wav"
             with wave.open(str(probe_path), "wb") as probe_wav:
                 probe_wav.setnchannels(1)
                 probe_wav.setsampwidth(2)
                 probe_wav.setframerate(16000)
                 probe_wav.writeframes(bytes(9600))  # 0.3s silence
+
+            result: dict[str, bool] = {}
+
+            def run() -> None:
+                try:
+                    segments, _info = model.transcribe(str(probe_path), beam_size=1)
+                    for _ in segments:
+                        pass
+                    result["ok"] = True
+                except Exception:
+                    result["ok"] = False
+
+            worker = threading.Thread(target=run, daemon=True)
+            worker.start()
+            worker.join(timeout_seconds)
+            return bool(result.get("ok"))
     except Exception:
         return False
-
-    result: dict[str, bool] = {}
-
-    def run() -> None:
-        try:
-            segments, _info = model.transcribe(str(probe_path), beam_size=1)
-            for _ in segments:
-                pass
-            result["ok"] = True
-        except Exception:
-            result["ok"] = False
-
-    worker = threading.Thread(target=run, daemon=True)
-    worker.start()
-    worker.join(timeout_seconds)
-    return bool(result.get("ok"))
 
 
 def find_lyric_match(transcripts: list[str]) -> Optional[tuple[str, str, float, int]]:

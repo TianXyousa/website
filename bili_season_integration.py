@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import re
 import time
+import unicodedata
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.error import HTTPError, URLError
@@ -12,6 +14,7 @@ from urllib.request import Request, urlopen
 from bili_upload_integration import (
     BiliUploadConfig,
     BiliUploadError,
+    build_songcut_upload_title,
     upload_songcut_video,
 )
 
@@ -19,11 +22,30 @@ MEMBER_BASE = "https://member.bilibili.com/x2/creative/web"
 SEASONS_URL = f"{MEMBER_BASE}/seasons"
 SEASON_ADD_URL = f"{MEMBER_BASE}/season/add"
 EPISODES_ADD_URL = f"{MEMBER_BASE}/season/section/episodes/add"
-ARC_SEARCH_URL = f"{MEMBER_BASE}/arc/search"
+ARCHIVES_URL = "https://member.bilibili.com/x/web/archives"
 VIEW_URL = "https://api.bilibili.com/x/web-interface/view"
 
 REQUEST_TIMEOUT_SECONDS = 30
-BV_PATTERN = re.compile(r"BV[1-9A-HJ-NP-Za-km-z]{10}")
+REQUEST_RETRY_ATTEMPTS = 3
+REQUEST_RETRY_BACKOFF_SECONDS = 0.8
+# BVIDs are case-sensitive, but biliup has emitted the prefix in different
+# cases across versions.  Keep the payload alphabet strict while accepting a
+# lower-case prefix and normalising it back to ``BV`` for API calls.
+BV_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])BV[1-9A-HJ-NP-Za-km-z]{10}(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+DEFAULT_UPLOAD_COOLDOWN_SECONDS = 60.0
+RECENT_UPLOAD_REUSE_SECONDS = 2 * 60 * 60
+BVID_LOOKUP_ATTEMPTS = 5
+BVID_LOOKUP_BACKOFF_SECONDS = 1.0
+RATE_LIMIT_RETRY_GUIDANCE = (
+    "请等待 B 站解除限流后，再手动重试当前及标记为“未尝试”的歌曲，避免连续点击投稿。"
+)
+_RATE_LIMIT_PATTERNS = (
+    re.compile(r"\bcode\s*[:=]?\s*21566\b", re.IGNORECASE),
+    re.compile(r"\bcode\s*[:=]?\s*601\b", re.IGNORECASE),
+)
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -91,11 +113,24 @@ def _request_json(
         headers["Cookie"] = _cookie_header(cookies)
 
     request = Request(url, data=data, headers=headers)
-    try:
-        with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (HTTPError, URLError, OSError, ValueError) as exc:
-        raise BiliSeasonError(f"B 站接口请求失败 ({url}): {exc}") from exc
+    last_error: Optional[BaseException] = None
+    for attempt in range(REQUEST_RETRY_ATTEMPTS):
+        try:
+            with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            break
+        except HTTPError as exc:
+            # HTTP status codes are real server responses; retrying them tends
+            # to repeat authentication/WAF failures and slows the UI down.
+            raise BiliSeasonError(f"B 站接口请求失败 ({url}): {exc}") from exc
+        except (URLError, OSError, ValueError) as exc:
+            last_error = exc
+            if attempt + 1 >= REQUEST_RETRY_ATTEMPTS:
+                hint = "；B 站可能暂时拒绝连接，请稍后重试或检查代理/网络" if isinstance(exc, (URLError, OSError)) else ""
+                raise BiliSeasonError(f"B 站接口请求失败 ({url}): {exc}{hint}") from exc
+            time.sleep(REQUEST_RETRY_BACKOFF_SECONDS * (2**attempt))
+    else:  # pragma: no cover - defensive guard for future retry changes
+        raise BiliSeasonError(f"B 站接口请求失败 ({url}): {last_error}") from last_error
 
     if not isinstance(payload, dict):
         raise BiliSeasonError(f"B 站接口返回了无法解析的内容 ({url})。")
@@ -104,7 +139,50 @@ def _request_json(
 
 def extract_bv_from_text(text: str) -> Optional[str]:
     match = BV_PATTERN.search(text or "")
-    return match.group(0) if match else None
+    if not match:
+        return None
+    value = match.group(0)
+    return "BV" + value[2:]
+
+
+def extract_bv_from_value(value: Any) -> Optional[str]:
+    """Extract a BVID from biliup's text or structured return payload.
+
+    Recent biliup builds do not always print a clickable URL.  Some versions
+    return ``bvid``/``bv_id`` in a JSON-shaped object instead, so checking only
+    ``stdout`` silently loses a successful submission.
+    """
+    if isinstance(value, str):
+        return extract_bv_from_text(value)
+    if isinstance(value, dict):
+        for key in ("bvid", "bv_id", "bv", "video_url", "url", "link"):
+            candidate = value.get(key)
+            if candidate:
+                bvid = extract_bv_from_value(candidate)
+                if bvid:
+                    return bvid
+        for candidate in value.values():
+            bvid = extract_bv_from_value(candidate)
+            if bvid:
+                return bvid
+    elif isinstance(value, (list, tuple, set)):
+        for candidate in value:
+            bvid = extract_bv_from_value(candidate)
+            if bvid:
+                return bvid
+    return None
+
+
+def is_bili_upload_rate_limit_error(error: Any) -> bool:
+    """Recognize both App and Web uploader rate-limit responses."""
+    text = str(error or "")
+    lowered = text.lower()
+    return (
+        any(pattern.search(text) for pattern in _RATE_LIMIT_PATTERNS)
+        or "投稿过于频繁" in text
+        or "上传视频过快" in text
+        or "upload rate limit" in lowered
+    )
 
 
 def list_seasons(cookie_file: Path) -> list[dict[str, Any]]:
@@ -226,27 +304,108 @@ def fetch_video_info(bvid: str) -> dict[str, Any]:
     }
 
 
-def find_video_bvid_by_title(cookie_file: Path, title: str) -> Optional[str]:
-    """Fallback lookup: search the account's own recent drafts by title."""
-    cookies = parse_cookie_pairs(cookie_file)
-    payload = _request_json(
-        f"{ARC_SEARCH_URL}?{urlencode({'pn': 1, 'ps': 20, 'keyword': title})}",
-        cookies=cookies,
-    )
-    if payload.get("code") != 0:
-        return None
+def find_video_bvid_by_title(
+    cookie_file: Path,
+    title: str,
+    *,
+    newer_than: Optional[int] = None,
+) -> Optional[str]:
+    """Search the account's archive list for a title and return its BVID.
 
-    data = payload.get("data") or {}
-    entries = data.get("vlist") or data.get("arc_audits") or []
-    for entry in entries:
-        archive = entry.get("Archive") if isinstance(entry, dict) else None
-        candidate = archive or entry
-        if not isinstance(candidate, dict):
-            continue
-        if str(candidate.get("title", "")).strip() == str(title).strip():
-            bvid = candidate.get("bvid")
+    ``x/web/archives`` currently returns the useful records under
+    ``data.arc_audits[*].Archive``.  The endpoint is eventually consistent
+    after a submission, and some records do not carry timestamps, so a missing
+    timestamp must not make an otherwise exact match disappear.
+    """
+    cookies = parse_cookie_pairs(cookie_file)
+    normalized_title = _normalize_archive_title(title)
+
+    # A normal account page has fewer than 20 records, but walk additional
+    # pages when needed so a delayed publication is not hidden behind older
+    # uploads.  Stop as soon as the endpoint reports the final page.
+    for page in range(1, 11):
+        payload = _request_json(
+            f"{ARCHIVES_URL}?{urlencode({'status': 'is_pubing,pubed,not_pubed', 'pn': page, 'ps': 50})}",
+            cookies=cookies,
+        )
+        if payload.get("code") != 0:
+            return None
+
+        data = payload.get("data") or {}
+        entries = data.get("arc_audits") or data.get("archives") or data.get("vlist") or []
+        if isinstance(entries, dict):
+            entries = entries.get("list") or entries.get("archives") or []
+        if not isinstance(entries, list):
+            entries = []
+
+        for entry in entries:
+            archive = entry.get("Archive") if isinstance(entry, dict) else None
+            candidate = archive if isinstance(archive, dict) else entry
+            if not isinstance(candidate, dict):
+                continue
+            candidate_title = _normalize_archive_title(candidate.get("title", ""))
+            if candidate_title != normalized_title:
+                continue
+
+            if newer_than is not None:
+                timestamps = [candidate.get("ctime"), candidate.get("ptime")]
+                valid_timestamps = [
+                    int(value)
+                    for value in timestamps
+                    if str(value or "").strip().isdigit()
+                ]
+                # A few ``is_pubing`` records omit both timestamps.  Treat
+                # that as unknown rather than incorrectly rejecting a match.
+                if valid_timestamps and max(valid_timestamps) < int(newer_than):
+                    continue
+
+            bvid = extract_bv_from_value(
+                candidate.get("bvid")
+                or candidate.get("bv_id")
+                or candidate.get("bvid_str")
+            )
             if bvid:
-                return str(bvid)
+                return bvid
+
+        page_info = data.get("page") or {}
+        total = page_info.get("count") if isinstance(page_info, dict) else None
+        if len(entries) < 50 or (total is not None and page * 50 >= int(total)):
+            break
+    return None
+
+
+def _normalize_archive_title(value: Any) -> str:
+    text = unicodedata.normalize("NFKC", str(value or ""))
+    return " ".join(text.split()).strip()
+
+
+def find_video_bvid_after_upload(
+    cookie_file: Path,
+    title: str,
+    *,
+    newer_than: Optional[int] = None,
+    attempts: int = BVID_LOOKUP_ATTEMPTS,
+    sleep_fn: Optional[Callable[[float], None]] = None,
+) -> Optional[str]:
+    """Poll the archives endpoint until a just-submitted BVID is visible."""
+    sleep_fn = sleep_fn or time.sleep
+    attempts = max(1, int(attempts or 1))
+    for attempt in range(attempts):
+        try:
+            if newer_than is None:
+                bvid = find_video_bvid_by_title(cookie_file, title)
+            else:
+                bvid = find_video_bvid_by_title(
+                    cookie_file,
+                    title,
+                    newer_than=newer_than,
+                )
+        except BiliSeasonError:
+            bvid = None
+        if bvid:
+            return bvid
+        if attempt + 1 < attempts:
+            sleep_fn(BVID_LOOKUP_BACKOFF_SECONDS * (2**attempt))
     return None
 
 
@@ -261,10 +420,13 @@ def add_video_to_season(
     cookies = parse_cookie_pairs(cookie_file)
     csrf = cookies.get("bili_jct", "")
     payload = _request_json(
-        f"{EPISODES_ADD_URL}?csrf={csrf}&csrf_token={csrf}",
+        # The current web API uses camelCase ``sectionId`` and accepts the
+        # CSRF token both in the query string and JSON body.  ``section_id``
+        # is silently ignored by Bilibili and leaves the collection empty.
+        f"{EPISODES_ADD_URL}?csrf={csrf}",
         cookies=cookies,
         json_body={
-            "section_id": int(section_id),
+            "sectionId": int(section_id),
             "episodes": [
                 {
                     "aid": int(aid),
@@ -273,6 +435,7 @@ def add_video_to_season(
                     "charging_pay": 0,
                 }
             ],
+            "csrf": csrf,
         },
     )
     if payload.get("code") != 0:
@@ -289,13 +452,18 @@ def publish_songcut_collection(
     season_id: Optional[int] = None,
     create_if_missing: bool = True,
     upload_fn: Callable[..., dict[str, Any]] = upload_songcut_video,
+    upload_cooldown_seconds: float = DEFAULT_UPLOAD_COOLDOWN_SECONDS,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    reuse_recent_uploads: bool = True,
+    recent_upload_reuse_seconds: int = RECENT_UPLOAD_REUSE_SECONDS,
 ) -> dict[str, Any]:
     """Upload songcuts via biliup and gather them into one Bilibili 合集.
 
     Uploads run first (each returns a BV号 parsed from biliup output, falling
     back to a title search); the collection is then created/reused and every
-    video is appended to its default section. Failures are isolated per video
-    so one bad cut never aborts the batch.
+    video is appended to its default section. Ordinary failures are isolated
+    per video. A Bilibili rate-limit response stops the batch immediately so
+    the remaining files can be retried later without making the limit worse.
     """
     if not songcut_paths:
         raise BiliSeasonError("没有选择任何歌切。")
@@ -316,56 +484,129 @@ def publish_songcut_collection(
     results: list[dict[str, Any]] = []
     uploaded_infos: list[tuple[dict[str, Any], str]] = []
     first_cover = ""
+    rate_limited_at: Optional[str] = None
+    skipped_count = 0
+    reused_count = 0
 
-    for songcut_path in songcut_paths:
+    for index, songcut_path in enumerate(songcut_paths):
         entry: dict[str, Any] = {
             "path": str(songcut_path),
             "filename": songcut_path.name,
             "ok": False,
             "uploaded": False,
             "added_to_season": False,
+            "skipped": False,
             "error": None,
         }
+        submission_succeeded = False
+        rate_limit_hit = False
         try:
-            upload_result = upload_fn(
-                songcut_path,
-                config,
-                ffmpeg_path=ffmpeg_path,
-                temp_root=temp_root,
-            )
-            entry["uploaded"] = True
-            entry["title"] = upload_result.get("title", songcut_path.stem)
+            bvid: Optional[str] = None
+            expected_title = build_songcut_upload_title(songcut_path, config)
+            if reuse_recent_uploads:
+                try:
+                    bvid = find_video_bvid_by_title(
+                        cookie_path,
+                        expected_title,
+                        newer_than=int(time.time()) - max(0, int(recent_upload_reuse_seconds)),
+                    )
+                except BiliSeasonError:
+                    # A lookup failure must not prevent a normal upload. The
+                    # post-upload output still gets a chance to provide BV号.
+                    bvid = None
 
-            bvid = (
-                extract_bv_from_text(upload_result.get("stdout", ""))
-                or extract_bv_from_text(str(upload_result))
-                or find_video_bvid_by_title(cookie_path, entry["title"])
-            )
+            if bvid:
+                entry["uploaded"] = True
+                entry["reused_existing"] = True
+                entry["title"] = expected_title
+                reused_count += 1
+            else:
+                upload_result = upload_fn(
+                    songcut_path,
+                    config,
+                    ffmpeg_path=ffmpeg_path,
+                    temp_root=temp_root,
+                )
+                submission_succeeded = True
+                entry["uploaded"] = True
+                entry["title"] = upload_result.get("title", expected_title)
+
+                bvid = (
+                    extract_bv_from_value(upload_result)
+                    or find_video_bvid_after_upload(
+                        cookie_path,
+                        entry["title"],
+                        sleep_fn=sleep_fn,
+                    )
+                )
             if not bvid:
                 entry["error"] = "投稿成功但未能解析 BV号，已跳过合集归档（稍后可在创作中心手动添加）。"
-                results.append(entry)
-                continue
-
-            info = fetch_video_info(bvid)
-            entry["bvid"] = bvid
-            entry["aid"] = info["aid"]
-            if not first_cover:
-                first_cover = info["pic"]
-            uploaded_infos.append((info, str(entry["title"])))
-            entry["ok"] = True
+            else:
+                info = fetch_video_info(bvid)
+                entry["bvid"] = bvid
+                entry["aid"] = info["aid"]
+                if not first_cover:
+                    first_cover = info["pic"]
+                uploaded_infos.append((info, str(entry["title"])))
+                entry["ok"] = True
         except (BiliUploadError, BiliSeasonError) as exc:
-            entry["error"] = str(exc)
+            if is_bili_upload_rate_limit_error(exc):
+                rate_limit_hit = True
+                rate_limited_at = datetime.now().astimezone().isoformat(timespec="seconds")
+                entry["rate_limited"] = True
+                entry["error"] = "B 站限制了投稿频率，本批次已暂停。"
+            else:
+                entry["error"] = str(exc)
         except Exception as exc:  # pragma: no cover
             entry["error"] = f"未预期的错误: {exc}"
         results.append(entry)
 
+        if rate_limit_hit:
+            remaining_paths = songcut_paths[index + 1 :]
+            skipped_count = len(remaining_paths)
+            for remaining_path in remaining_paths:
+                results.append(
+                    {
+                        "path": str(remaining_path),
+                        "filename": remaining_path.name,
+                        "ok": False,
+                        "uploaded": False,
+                        "added_to_season": False,
+                        "skipped": True,
+                        "skip_reason": "rate_limit",
+                        "error": "检测到 B 站限流，本次未尝试投稿；请稍后重试。",
+                    }
+                )
+            break
+
+        if (
+            submission_succeeded
+            and index < len(songcut_paths) - 1
+            and float(upload_cooldown_seconds or 0) > 0
+        ):
+            sleep_fn(float(upload_cooldown_seconds))
+
     if not uploaded_infos:
+        if rate_limited_at:
+            retry_count = sum(1 for item in results if not item.get("uploaded"))
+            return {
+                "status": "rate_limited",
+                "message": f"B 站触发投稿限流，已停止本批次；{retry_count} 个歌切等待稍后重试。",
+                "results": results,
+                "uploaded_count": 0,
+                "season_added_count": 0,
+                "skipped_count": skipped_count,
+                "reused_count": reused_count,
+                "rate_limited_at": rate_limited_at,
+                "retry_guidance": RATE_LIMIT_RETRY_GUIDANCE,
+            }
         return {
             "status": "failed",
             "message": "所有投稿都失败了，未创建/更新合集。",
             "results": results,
             "uploaded_count": 0,
             "season_added_count": 0,
+            "reused_count": reused_count,
         }
 
     if season is None:
@@ -407,11 +648,33 @@ def publish_songcut_collection(
         except Exception as exc:  # pragma: no cover
             entry["error"] = f"加入合集失败: {exc}"
 
-    return {
-        "status": "success" if added_count else "partial",
-        "message": f"投稿 {len(uploaded_infos)} 个，其中 {added_count} 个已加入合集。",
+    if rate_limited_at:
+        retry_count = sum(1 for item in results if not item.get("uploaded"))
+        status = "rate_limited"
+        message = (
+            f"B 站触发投稿限流，已停止本批次；已处理 {len(uploaded_infos)} 个，"
+            f"其中 {added_count} 个已加入合集，另有 {retry_count} 个等待稍后重试。"
+        )
+    else:
+        status = "success" if added_count else "partial"
+        reuse_text = f"（复用最近已投稿 {reused_count} 个）" if reused_count else ""
+        message = f"处理 {len(uploaded_infos)} 个稿件{reuse_text}，其中 {added_count} 个已加入合集。"
+
+    response = {
+        "status": status,
+        "message": message,
         "season": {"id": season["id"], "title": season["title"], "created": season.get("created", False)},
         "results": results,
         "uploaded_count": len(uploaded_infos),
         "season_added_count": added_count,
+        "reused_count": reused_count,
     }
+    if rate_limited_at:
+        response.update(
+            {
+                "skipped_count": skipped_count,
+                "rate_limited_at": rate_limited_at,
+                "retry_guidance": RATE_LIMIT_RETRY_GUIDANCE,
+            }
+        )
+    return response

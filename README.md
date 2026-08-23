@@ -54,7 +54,9 @@ BililiveRecorder ──FileClosed Webhook──▶ FastAPI (main.py)
 ```bash
 # 1. 准备配置
 cp .env.example .env
-#    编辑 .env：设置 UPLOAD_PASSWORD、ACRCLOUD_* 三项（指纹识别必需）
+#    编辑 .env：设置唯一的 UPLOAD_PASSWORD；如需指纹识别，再设置 ACRCLOUD_* 三项
+
+#    B 站 cookies.json 请在后台上传，或放入 data/app/bili_cookies/；不要提交到 Git
 
 # 2. 启动（含 BililiveRecorder）
 docker compose up -d --build
@@ -65,6 +67,9 @@ docker compose up -d --build
 ```
 
 首次使用歌词识别时容器会自动下载 Whisper 模型（medium 约 1.5GB，缓存在 `data/app/hf_cache`，只下载一次）。
+
+仓库只提供 `.bili_upload_config.example.json` 和 `cookies.example.json`。实际的 B 站 Cookie、API
+密钥、登录密码和二维码均属于本地凭据，已由 `.gitignore` 排除。
 
 ### GPU 部署（inaSpeechSegmenter 模型提取）
 
@@ -87,13 +92,13 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 ## 配置说明
 
-所有配置通过环境变量（`.env`）注入，均有安全默认值，**零配置即可运行基础功能**。
+所有配置通过环境变量（`.env`）注入。登录密码和外部服务凭据没有仓库内默认值，部署前必须自行设置。
 
 ### 基础
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `ADMIN_USERNAME` / `UPLOAD_PASSWORD` | admin / 见 .env | 后台登录与 API 密钥（`X-API-Key`） |
+| `ADMIN_USERNAME` / `UPLOAD_PASSWORD` | admin / 必填 | 后台登录与 API 密钥（`X-API-Key`） |
 | `BREC_DEFAULT_AUTO_CATEGORY` | 录播姬自动提取 | 自动提取的歌切分类名 |
 | `SONG_RECOGNITION_CACHE_PATH` | .song_recognition_cache.json | 识别结果缓存（按文件内容哈希） |
 
@@ -233,6 +238,12 @@ python -m unittest discover -s tests
 
 **Q：Whisper 会不会在有显卡的机器上卡死？**
 `SONGCUT_WHISPER_DEVICE=auto` 内置 60 秒 CUDA 自检探针（0.3 秒静音真实推理），检测到 CUDA 运行库缺失（如缺 cuBLAS）自动回退 CPU，不会挂死。
+
+Windows + RTX 50 系列如果使用本地 `.venv`，还需要安装 `requirements-gpu.txt` 中的
+cuBLAS/cuDNN 运行库；程序会自动注册 pip 安装的 NVIDIA DLL 目录，随后 faster-whisper
+会在 `auto` 模式下使用 CUDA。旧的 `gpu-model` 分段器仍依赖 TensorFlow/inaSpeechSegmenter，
+在尚未包含 compute capability 12.0 内核的 TensorFlow 版本上会失败；这种情况下可继续用
+classic 快速能量分段，同时让歌词识别走 GPU Whisper。
 
 **Q：清唱/很安静的翻唱被真唱门控拦了？**
 调低 `SONGCUT_MIN_SUSTAINED_ACTIVE_SECONDS`（如 8）或 `SONGCUT_MAX_ACTIVITY_CV`（如 0.7）。

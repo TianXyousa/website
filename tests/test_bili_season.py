@@ -2,14 +2,19 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from urllib.error import URLError
+from unittest.mock import MagicMock, Mock, patch
 
 from bili_season_integration import (
     BiliSeasonError,
+    _request_json,
     add_video_to_season,
     ensure_season,
+    find_video_bvid_after_upload,
     extract_bv_from_text,
+    extract_bv_from_value,
     find_video_bvid_by_title,
+    is_bili_upload_rate_limit_error,
     list_seasons,
     parse_cookie_pairs,
     publish_songcut_collection,
@@ -84,6 +89,102 @@ class ExtractBvTests(unittest.TestCase):
     def test_no_bv_returns_none(self):
         self.assertIsNone(extract_bv_from_text("投稿成功，没有返回链接"))
         self.assertIsNone(extract_bv_from_text(""))
+
+    def test_extracts_structured_bvid_from_uploader_result(self):
+        self.assertEqual(
+            extract_bv_from_value({"data": {"bvid": "BV1TL886zEnj"}}),
+            "BV1TL886zEnj",
+        )
+
+    def test_accepts_lowercase_prefix_and_normalizes_it(self):
+        self.assertEqual(extract_bv_from_text("video/bv1GJ411x7h7"), "BV1GJ411x7h7")
+
+
+class RequestRetryTests(unittest.TestCase):
+    def test_retries_transient_connection_error(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b'{"code": 0}'
+        with patch(
+            "bili_season_integration.urlopen",
+            side_effect=[URLError("[WinError 10061] refused"), response],
+        ) as request, patch("bili_season_integration.time.sleep") as sleep:
+            payload = _request_json("https://example.test/seasons")
+
+        self.assertEqual(payload, {"code": 0})
+        self.assertEqual(request.call_count, 2)
+        sleep.assert_called_once()
+
+
+class FindVideoByTitleTests(unittest.TestCase):
+    def test_uses_current_archives_endpoint_and_parses_archive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cookie_path = write_cookie_file(
+                Path(tmp),
+                [{"name": "SESSDATA", "value": "s"}, {"name": "bili_jct", "value": "c"}],
+            )
+            payload = {
+                "code": 0,
+                "data": {
+                    "arc_audits": [
+                        {
+                            "Archive": {
+                                "title": "glow",
+                                "bvid": "BV1GJ411x7h7",
+                                "ctime": 200,
+                                "ptime": 210,
+                            }
+                        }
+                    ]
+                },
+            }
+            with patch("bili_season_integration._request_json", return_value=payload) as request:
+                bvid = find_video_bvid_by_title(cookie_path, "glow", newer_than=100)
+
+        self.assertEqual(bvid, "BV1GJ411x7h7")
+        self.assertIn("/x/web/archives?", request.call_args.args[0])
+        self.assertNotIn("/x2/creative/web/arc/search", request.call_args.args[0])
+
+    def test_ignores_old_matching_archive_during_recovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cookie_path = write_cookie_file(Path(tmp), [{"name": "SESSDATA", "value": "s"}])
+            payload = {
+                "code": 0,
+                "data": {
+                    "arc_audits": [
+                        {"Archive": {"title": "glow", "bvid": "BV1GJ411x7h7", "ctime": 50}}
+                    ]
+                },
+            }
+            with patch("bili_season_integration._request_json", return_value=payload):
+                bvid = find_video_bvid_by_title(cookie_path, "glow", newer_than=100)
+
+        self.assertIsNone(bvid)
+
+    def test_accepts_matching_archive_without_timestamps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cookie_path = write_cookie_file(Path(tmp), [{"name": "SESSDATA", "value": "s"}])
+            payload = {
+                "code": 0,
+                "data": {"arc_audits": [{"Archive": {"title": "glow", "bvid": "BV1GJ411x7h7"}}]},
+            }
+            with patch("bili_season_integration._request_json", return_value=payload):
+                bvid = find_video_bvid_by_title(cookie_path, "glow", newer_than=100)
+
+        self.assertEqual(bvid, "BV1GJ411x7h7")
+
+    def test_retries_when_archive_is_eventually_consistent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cookie_path = write_cookie_file(Path(tmp), [{"name": "SESSDATA", "value": "s"}])
+            with patch(
+                "bili_season_integration.find_video_bvid_by_title",
+                side_effect=[None, "BV1GJ411x7h7"],
+            ) as find, patch("bili_season_integration.time.sleep") as sleep:
+                bvid = find_video_bvid_after_upload(cookie_path, "glow", attempts=3)
+
+        self.assertEqual(bvid, "BV1GJ411x7h7")
+        self.assertEqual(find.call_count, 2)
+        sleep.assert_called_once()
 
 
 class ListSeasonsTests(unittest.TestCase):
@@ -171,7 +272,8 @@ class AddVideoTests(unittest.TestCase):
         call = request.call_args
         self.assertIn("csrf=c", call.args[0])
         body = call.kwargs["json_body"]
-        self.assertEqual(body["section_id"], 90)
+        self.assertEqual(body["sectionId"], 90)
+        self.assertEqual(body["csrf"], "c")
         self.assertEqual(body["episodes"][0]["aid"], 123)
         self.assertEqual(body["episodes"][0]["cid"], 456)
         self.assertEqual(body["episodes"][0]["title"], "夏夜晚风 - 伍佰")
@@ -215,6 +317,8 @@ class PublishCollectionTests(unittest.TestCase):
                 temp_root=Path(self._tmp.name),
                 season_title="合集",
                 upload_fn=self._upload_fn,
+                upload_cooldown_seconds=0,
+                reuse_recent_uploads=False,
             )
 
         self.assertEqual(result["status"], "success")
@@ -248,6 +352,8 @@ class PublishCollectionTests(unittest.TestCase):
                 temp_root=Path(self._tmp.name),
                 season_title="合集",
                 upload_fn=upload_no_bv,
+                upload_cooldown_seconds=0,
+                reuse_recent_uploads=False,
             )
 
         find.assert_called_once_with(self.cookie_path, "仅标题")
@@ -265,6 +371,8 @@ class PublishCollectionTests(unittest.TestCase):
                 temp_root=Path(self._tmp.name),
                 season_title="合集",
                 upload_fn=failing_upload,
+                upload_cooldown_seconds=0,
+                reuse_recent_uploads=False,
             )
 
         self.assertEqual(result["status"], "failed")
@@ -287,10 +395,112 @@ class PublishCollectionTests(unittest.TestCase):
                 temp_root=Path(self._tmp.name),
                 season_id=8,
                 upload_fn=self._upload_fn,
+                upload_cooldown_seconds=0,
+                reuse_recent_uploads=False,
             )
 
         ensure.assert_not_called()
         self.assertEqual(result["season"]["id"], 8)
+
+    def test_stops_batch_and_marks_remaining_items_when_rate_limited(self):
+        upload = Mock(side_effect=BiliUploadError(
+            'ResponseData { code: 21566, message: "投稿过于频繁" }'
+        ))
+
+        with patch("bili_season_integration.ensure_season") as ensure:
+            result = publish_songcut_collection(
+                songcut_paths=self.paths,
+                config=self.config,
+                ffmpeg_path=None,
+                temp_root=Path(self._tmp.name),
+                season_title="合集",
+                upload_fn=upload,
+                upload_cooldown_seconds=0,
+                reuse_recent_uploads=False,
+            )
+
+        self.assertEqual(result["status"], "rate_limited")
+        self.assertEqual(upload.call_count, 1)
+        self.assertTrue(result["results"][0]["rate_limited"])
+        self.assertTrue(result["results"][1]["skipped"])
+        self.assertEqual(result["results"][1]["skip_reason"], "rate_limit")
+        self.assertEqual(result["skipped_count"], 1)
+        self.assertIn("rate_limited_at", result)
+        ensure.assert_not_called()
+
+    def test_waits_between_successful_submissions(self):
+        upload = Mock(side_effect=[
+            {"status": "success", "title": "标题-a", "stdout": "BV1GJ411x7h7"},
+            {"status": "success", "title": "标题-b", "stdout": "BV1GJ411x7h7"},
+        ])
+        sleep = Mock()
+
+        with patch(
+            "bili_season_integration.fetch_video_info",
+            side_effect=[
+                {"aid": 1, "cid": 11, "title": "a", "pic": "http://x/a.jpg"},
+                {"aid": 2, "cid": 22, "title": "b", "pic": "http://x/b.jpg"},
+            ],
+        ), patch(
+            "bili_season_integration.ensure_season",
+            return_value={"id": 5, "title": "合集", "section_id": 50},
+        ), patch("bili_season_integration.add_video_to_season"):
+            publish_songcut_collection(
+                songcut_paths=self.paths,
+                config=self.config,
+                ffmpeg_path=None,
+                temp_root=Path(self._tmp.name),
+                season_title="合集",
+                upload_fn=upload,
+                upload_cooldown_seconds=60,
+                sleep_fn=sleep,
+                reuse_recent_uploads=False,
+            )
+
+        sleep.assert_called_once_with(60.0)
+
+    def test_reuses_recent_matching_upload_without_uploading_again(self):
+        upload = Mock()
+
+        with patch(
+            "bili_season_integration.find_video_bvid_by_title",
+            return_value="BV1GJ411x7h7",
+        ), patch(
+            "bili_season_integration.fetch_video_info",
+            return_value={"aid": 9, "cid": 99, "title": "a", "pic": "http://x/a.jpg"},
+        ), patch(
+            "bili_season_integration.ensure_season",
+            return_value={"id": 5, "title": "合集", "section_id": 50},
+        ), patch("bili_season_integration.add_video_to_season"):
+            result = publish_songcut_collection(
+                songcut_paths=self.paths[:1],
+                config=self.config,
+                ffmpeg_path=None,
+                temp_root=Path(self._tmp.name),
+                season_title="合集",
+                upload_fn=upload,
+                upload_cooldown_seconds=0,
+            )
+
+        upload.assert_not_called()
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["reused_count"], 1)
+        self.assertTrue(result["results"][0]["reused_existing"])
+
+
+class RateLimitDetectionTests(unittest.TestCase):
+    def test_recognizes_known_bilibili_rate_limit_messages(self):
+        messages = [
+            "ResponseData { code: 21566, message: 投稿过于频繁 }",
+            "upload rate limit (code: 601): 您上传视频过快",
+            "投稿过于频繁，建议稍后再试",
+            "您上传视频过快，请稍作休息",
+        ]
+        for message in messages:
+            with self.subTest(message=message):
+                self.assertTrue(is_bili_upload_rate_limit_error(message))
+
+        self.assertFalse(is_bili_upload_rate_limit_error("生成投稿视频失败: invalid data"))
 
 
 if __name__ == "__main__":

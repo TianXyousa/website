@@ -1,0 +1,12 @@
+{
+  "cookie_file": "data/app/bili_cookies/cookies.json",
+  "uploader_path": "biliup",
+  "tid": 31,
+  "title_template": "{title}",
+  "desc_template": "直播歌切\n时间段：{start_label} - {end_label}\n原录播：{source}",
+  "dynamic_template": "",
+  "tags": "直播切片,翻唱",
+  "copyright": 1,
+  "source": "",
+  "cover_image": ""
+}

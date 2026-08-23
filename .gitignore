@@ -3,6 +3,11 @@
 .env.local
 .env.*.local
 
+# Local credentials and private runtime configuration
+.bili_upload_config.json
+cookies.json
+qrcode.png
+
 # Dependencies
 node_modules/
 package-lock.json

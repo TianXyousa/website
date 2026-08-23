@@ -2,3 +2,9 @@ pandas==2.0.0
 numpy==1.26.3
 pyannote.core<5
 scikit-image<0.25
+# faster-whisper/CTranslate2 can enumerate an NVIDIA GPU on Windows while
+# still missing the CUDA DLLs needed for the first inference.  These wheels are
+# Windows-only here; Linux GPU images get the same libraries from TensorFlow's
+# CUDA extra and the platform markers keep this file lightweight there.
+nvidia-cublas-cu12>=12.5; platform_system == "Windows"
+nvidia-cudnn-cu12>=9,<10; platform_system == "Windows"

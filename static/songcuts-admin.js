@@ -186,7 +186,7 @@
             desc_template: biliDescTemplateInput.value.trim(),
             dynamic_template: biliDynamicTemplateInput.value.trim(),
             tags: biliTagsInput.value.trim(),
-            copyright: Number(biliCopyrightInput.value) || 2,
+            copyright: Number(biliCopyrightInput.value) || 1,
             source: biliSourceInput.value.trim(),
             cover_image: "",
         };
@@ -707,13 +707,7 @@
         updateBiliUploadStatus("正在保存 B 站投稿配置...", false);
 
         try {
-            const data = await fetchJson("/api/bili-upload/config", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(getCurrentBiliUploadConfig()),
-            });
+            const data = await persistBiliUploadConfig();
             renderBiliUploadSummary({
                 config: data.config || {},
                 status: data.status_info || {},
@@ -725,6 +719,16 @@
         } finally {
             saveBiliUploadConfigButton.disabled = false;
         }
+    }
+
+    async function persistBiliUploadConfig() {
+        return fetchJson("/api/bili-upload/config", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(getCurrentBiliUploadConfig()),
+        });
     }
 
     async function uploadBiliCookie() {
@@ -814,10 +818,16 @@
         }
 
         biliPublishCollectionButton.disabled = true;
-        biliCollectionStatus.textContent = `正在发布 ${paths.length} 个歌切（逐个投稿并归档到合集，可能需要几分钟）...`;
+        biliCollectionStatus.textContent = "正在保存当前投稿配置...";
         biliCollectionInfo.hidden = true;
 
         try {
+            const configData = await persistBiliUploadConfig();
+            renderBiliUploadSummary({
+                config: configData.config || {},
+                status: configData.status_info || {},
+            });
+            biliCollectionStatus.textContent = `正在发布 ${paths.length} 个歌切（逐个投稿并归档到合集，可能需要几分钟）...`;
             const data = await fetchJson("/api/bili-upload/publish-collection", {
                 method: "POST",
                 headers: {
@@ -841,19 +851,39 @@
 
     function renderBiliCollectionResult(data) {
         const season = data.season || {};
-        biliCollectionStatus.textContent =
-            `${data.message || "发布完成。"} 目标合集：${season.title || "-"}${season.created ? "（新建）" : ""}`;
+        const seasonText = season.title
+            ? ` 目标合集：${season.title}${season.created ? "（新建）" : ""}`
+            : "";
+        biliCollectionStatus.textContent = `${data.message || "发布完成。"}${seasonText}`;
         biliCollectionInfo.hidden = false;
         biliCollectionInfo.innerHTML = "";
 
+        if (Array.isArray(data.retry_paths)) {
+            // Only items already added to the collection are removed. Recent
+            // successful uploads stay selected so a delayed BVID/archive
+            // lookup can be retried without creating duplicate submissions.
+            collectionSelection = new Set(data.retry_paths);
+            renderSongList();
+            updateCollectionSelectionCount();
+        }
+
         (data.results || []).forEach((item) => {
             const line = document.createElement("p");
-            const mark = item.ok && item.added_to_season ? "✅" : (item.uploaded ? "⚠️" : "❌");
+            const mark = item.skipped || item.rate_limited
+                ? "⏸️"
+                : (item.ok && item.added_to_season ? "✅" : (item.uploaded ? "⚠️" : "❌"));
             const bvidText = item.bvid ? `（${item.bvid}）` : "";
             const errorText = item.error ? ` — ${item.error}` : "";
             line.textContent = `${mark} ${item.title || item.filename}${bvidText}${errorText}`;
             biliCollectionInfo.appendChild(line);
         });
+
+        if (data.retry_guidance) {
+            const guidance = document.createElement("p");
+            const limitedAt = data.rate_limited_at ? `限流记录时间：${data.rate_limited_at}。` : "";
+            guidance.textContent = `⏱️ ${limitedAt}${data.retry_guidance}`;
+            biliCollectionInfo.appendChild(guidance);
+        }
     }
 
     function renderBiliUploadSummary(data) {
@@ -866,7 +896,7 @@
         biliTitleTemplateInput.value = config.title_template || "{title}";
         biliDescTemplateInput.value = config.desc_template || "";
         biliTagsInput.value = config.tags || "直播切片,翻唱";
-        biliCopyrightInput.value = String(config.copyright ?? 2);
+        biliCopyrightInput.value = String(config.copyright ?? 1);
         biliSourceInput.value = config.source || "";
         biliDynamicTemplateInput.value = config.dynamic_template || "";
 
@@ -1062,4 +1092,3 @@
         return escapeHtml(value);
     }
 });
-

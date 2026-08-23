@@ -129,6 +129,14 @@ def normalize_storage_name(value: str, fallback: str) -> str:
 
 
 def find_ffmpeg_binary(explicit_path: Optional[str] = None) -> Optional[str]:
+    bundled_ffmpeg: Optional[str] = None
+    try:
+        import imageio_ffmpeg
+
+        bundled_ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    except (ImportError, OSError, RuntimeError):
+        pass
+
     candidates = [
         explicit_path,
         str((Path.cwd() / "ffmpeg.exe").resolve()),
@@ -136,6 +144,7 @@ def find_ffmpeg_binary(explicit_path: Optional[str] = None) -> Optional[str]:
         str((Path.cwd() / "tools" / "ffmpeg" / "bin" / "ffmpeg.exe").resolve()),
         str((Path.cwd() / ".tools" / "ffmpeg" / "bin" / "ffmpeg.exe").resolve()),
         "ffmpeg",
+        bundled_ffmpeg,
     ]
 
     for candidate in candidates:
@@ -147,6 +156,8 @@ def find_ffmpeg_binary(explicit_path: Optional[str] = None) -> Optional[str]:
                 [candidate, "-version"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
         except OSError:
@@ -792,7 +803,14 @@ def _export_segment(
 
 
 def _run_ffmpeg(command: list[str], context: str) -> None:
-    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
     if completed.returncode == 0:
         return
 

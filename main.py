@@ -215,7 +215,7 @@ class BiliUploadConfigPayload(BaseModel):
     desc_template: str = DEFAULT_DESC_TEMPLATE
     dynamic_template: str = ""
     tags: str = DEFAULT_TAGS
-    copyright: int = 2
+    copyright: int = 1
     source: str = ""
     cover_image: str = ""
 
@@ -261,7 +261,7 @@ def current_bili_upload_config() -> BiliUploadConfig:
 
 
 def verify_password(api_key: str = Security(api_key_header)) -> str:
-    if api_key != UPLOAD_PASSWORD:
+    if not UPLOAD_PASSWORD or api_key != UPLOAD_PASSWORD:
         raise HTTPException(status_code=401, detail="无效密码")
     return api_key
 
@@ -1107,7 +1107,7 @@ async def post_admin_login(
     username: str = Form(...),
     password: str = Form(...),
 ):
-    if username != ADMIN_USERNAME or password != UPLOAD_PASSWORD:
+    if not UPLOAD_PASSWORD or username != ADMIN_USERNAME or password != UPLOAD_PASSWORD:
         return create_admin_redirect_response("/admin/login?error=1")
 
     response = create_admin_redirect_response("/admin/songcuts")
@@ -1353,7 +1353,7 @@ async def publish_songcut_collection_endpoint(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        return publish_songcut_collection(
+        result = publish_songcut_collection(
             songcut_paths=songcut_paths,
             config=config,
             ffmpeg_path=brec_config.ffmpeg_path or None,
@@ -1362,6 +1362,19 @@ async def publish_songcut_collection_endpoint(
             season_id=payload.season_id,
             create_if_missing=payload.create_if_missing,
         )
+        for index, item in enumerate(result.get("results", [])):
+            if index < len(payload.paths):
+                item["request_path"] = payload.paths[index]
+        # Keep every item that was not actually added to the collection in the
+        # retry selection.  This includes a successful upload whose BVID was
+        # temporarily invisible in the archives endpoint; the next attempt
+        # reuses that recent upload instead of creating a duplicate submission.
+        result["retry_paths"] = [
+            item["request_path"]
+            for item in result.get("results", [])
+            if not item.get("added_to_season") and item.get("request_path")
+        ]
+        return result
     except (BiliSeasonError, BiliUploadError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

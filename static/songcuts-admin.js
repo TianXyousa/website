@@ -59,6 +59,16 @@
     const biliDynamicTemplateInput = document.getElementById("biliDynamicTemplateInput");
     const biliUploadStatus = document.getElementById("biliUploadStatus");
     const biliUploadInfo = document.getElementById("biliUploadInfo");
+    const biliSeasonSelect = document.getElementById("biliSeasonSelect");
+    const biliSeasonRefreshButton = document.getElementById("biliSeasonRefreshButton");
+    const biliSeasonTitleInput = document.getElementById("biliSeasonTitleInput");
+    const biliSeasonCreateInput = document.getElementById("biliSeasonCreateInput");
+    const biliCollectionCount = document.getElementById("biliCollectionCount");
+    const biliCollectionSelectRecognizedButton = document.getElementById("biliCollectionSelectRecognizedButton");
+    const biliCollectionClearButton = document.getElementById("biliCollectionClearButton");
+    const biliPublishCollectionButton = document.getElementById("biliPublishCollectionButton");
+    const biliCollectionStatus = document.getElementById("biliCollectionStatus");
+    const biliCollectionInfo = document.getElementById("biliCollectionInfo");
 
     const PLAYBACK_MODE_STORAGE_KEY = "songcuts-playback-mode";
     const playbackModeText = {
@@ -70,6 +80,7 @@
     let allSongs = [];
     let filteredSongs = [];
     let currentSongPath = null;
+    let collectionSelection = new Set();
 
     initializePlaybackMode();
     ensureExtractionModeField();
@@ -78,6 +89,7 @@
     loadSongcuts();
     loadBrecSummary();
     loadBiliUploadSummary();
+    loadBiliSeasons();
 
     function bindEvents() {
         categoryFilter.addEventListener("change", applyFilters);
@@ -93,6 +105,18 @@
         refreshBrecButton.addEventListener("click", loadBrecSummary);
         saveBiliUploadConfigButton.addEventListener("click", saveBiliUploadConfig);
         uploadBiliCookieButton.addEventListener("click", uploadBiliCookie);
+        biliSeasonRefreshButton.addEventListener("click", loadBiliSeasons);
+        biliPublishCollectionButton.addEventListener("click", publishBiliCollection);
+        biliCollectionSelectRecognizedButton.addEventListener("click", () => {
+            collectionSelection = new Set(
+                filteredSongs.filter((song) => song.recognized).map((song) => song.path)
+            );
+            renderSongList();
+        });
+        biliCollectionClearButton.addEventListener("click", () => {
+            collectionSelection.clear();
+            renderSongList();
+        });
     }
 
     function initializePlaybackMode() {
@@ -336,13 +360,30 @@
 
                 const copy = document.createElement("div");
                 copy.className = "song-copy";
+                const recognizedBadge = song.recognized
+                    ? '<span class="song-recognized-badge" title="已识别歌名">已识别</span>'
+                    : "";
                 copy.innerHTML = `
-                    <div class="song-title">${song.title}</div>
+                    <div class="song-title">${song.title}${recognizedBadge}</div>
                     <div class="song-meta">${song.filename}</div>
                 `;
 
                 const actions = document.createElement("div");
                 actions.className = "inline-actions";
+
+                const selectBox = document.createElement("input");
+                selectBox.type = "checkbox";
+                selectBox.className = "song-select";
+                selectBox.checked = collectionSelection.has(song.path);
+                selectBox.title = "勾选后可发布到 B 站合集";
+                selectBox.addEventListener("change", () => {
+                    if (selectBox.checked) {
+                        collectionSelection.add(song.path);
+                    } else {
+                        collectionSelection.delete(song.path);
+                    }
+                    updateCollectionSelectionCount();
+                });
 
                 const playButton = document.createElement("button");
                 playButton.type = "button";
@@ -356,6 +397,7 @@
                 uploadButton.textContent = "投稿到B站";
                 uploadButton.addEventListener("click", () => uploadSongcutToBili(song));
 
+                item.appendChild(selectBox);
                 item.appendChild(copy);
                 actions.appendChild(playButton);
                 actions.appendChild(uploadButton);
@@ -732,6 +774,86 @@
             console.error("投稿到 B 站失败:", error);
             updateBiliUploadStatus(error.message || "投稿到 B 站失败。", true);
         }
+    }
+
+    function updateCollectionSelectionCount() {
+        biliCollectionCount.textContent = `${collectionSelection.size} 个`;
+    }
+
+    async function loadBiliSeasons() {
+        biliCollectionStatus.textContent = "正在读取 B 站合集列表...";
+
+        try {
+            const data = await fetchJson("/api/bili-upload/seasons");
+            const seasons = data.seasons || [];
+            biliSeasonSelect.innerHTML = '<option value="">不使用已有合集（按标题新建）</option>';
+            seasons.forEach((season) => {
+                const option = document.createElement("option");
+                option.value = String(season.id);
+                option.textContent = `${season.title}（${season.episode_count || 0}P）`;
+                biliSeasonSelect.appendChild(option);
+            });
+            biliCollectionStatus.textContent = `已加载 ${seasons.length} 个合集，可直接选择或按标题新建。`;
+        } catch (error) {
+            biliCollectionStatus.textContent = `合集列表加载失败：${error.message}`;
+        }
+    }
+
+    async function publishBiliCollection() {
+        const paths = Array.from(collectionSelection);
+        if (!paths.length) {
+            biliCollectionStatus.textContent = "请先在右侧歌切列表勾选要发布的片段。";
+            return;
+        }
+
+        const seasonIdRaw = biliSeasonSelect.value;
+        const seasonTitle = biliSeasonTitleInput.value.trim();
+        if (!seasonIdRaw && !seasonTitle) {
+            biliCollectionStatus.textContent = "请选择已有合集，或填写新合集标题。";
+            return;
+        }
+
+        biliPublishCollectionButton.disabled = true;
+        biliCollectionStatus.textContent = `正在发布 ${paths.length} 个歌切（逐个投稿并归档到合集，可能需要几分钟）...`;
+        biliCollectionInfo.hidden = true;
+
+        try {
+            const data = await fetchJson("/api/bili-upload/publish-collection", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    paths,
+                    season_title: seasonTitle,
+                    season_id: seasonIdRaw ? Number(seasonIdRaw) : null,
+                    create_if_missing: biliSeasonCreateInput.checked,
+                }),
+            });
+            renderBiliCollectionResult(data);
+        } catch (error) {
+            console.error("合集发布失败:", error);
+            biliCollectionStatus.textContent = `合集发布失败：${error.message}`;
+        } finally {
+            biliPublishCollectionButton.disabled = false;
+        }
+    }
+
+    function renderBiliCollectionResult(data) {
+        const season = data.season || {};
+        biliCollectionStatus.textContent =
+            `${data.message || "发布完成。"} 目标合集：${season.title || "-"}${season.created ? "（新建）" : ""}`;
+        biliCollectionInfo.hidden = false;
+        biliCollectionInfo.innerHTML = "";
+
+        (data.results || []).forEach((item) => {
+            const line = document.createElement("p");
+            const mark = item.ok && item.added_to_season ? "✅" : (item.uploaded ? "⚠️" : "❌");
+            const bvidText = item.bvid ? `（${item.bvid}）` : "";
+            const errorText = item.error ? ` — ${item.error}` : "";
+            line.textContent = `${mark} ${item.title || item.filename}${bvidText}${errorText}`;
+            biliCollectionInfo.appendChild(line);
+        });
     }
 
     function renderBiliUploadSummary(data) {

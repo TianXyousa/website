@@ -247,6 +247,46 @@
 
                     <div id="biliUploadStatus" class="status-box">等待读取 B 站投稿配置。</div>
                     <div id="biliUploadInfo" class="mini-list" hidden></div>
+
+                    <div class="field-group">
+                        <div class="field-group-title">合集发布</div>
+                        <p class="field-hint">在右侧歌切列表勾选要发布的片段（识别出歌名的会标出），一键投稿并归入同一个合集。</p>
+
+                        <div class="field">
+                            <label for="biliSeasonSelect">已有合集</label>
+                            <div class="inline-actions">
+                                <select id="biliSeasonSelect">
+                                    <option value="">不使用已有合集（按标题新建）</option>
+                                </select>
+                                <button id="biliSeasonRefreshButton" type="button" class="secondary-button">刷新合集</button>
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <label for="biliSeasonTitleInput">新合集标题</label>
+                            <input id="biliSeasonTitleInput" type="text" placeholder="例如：2026-08-23 直播歌切">
+                        </div>
+
+                        <div class="field field-check">
+                            <label for="biliSeasonCreateInput">
+                                <input id="biliSeasonCreateInput" type="checkbox" checked>
+                                合集不存在时自动创建（封面取第一个视频）
+                            </label>
+                        </div>
+
+                        <div class="field">
+                            <label>已选歌切</label>
+                            <div class="inline-actions">
+                                <span id="biliCollectionCount">0 个</span>
+                                <button id="biliCollectionSelectRecognizedButton" type="button" class="secondary-button">全选已识别</button>
+                                <button id="biliCollectionClearButton" type="button" class="secondary-button">清空选择</button>
+                            </div>
+                        </div>
+
+                        <button id="biliPublishCollectionButton" type="button" class="primary-button">发布到合集</button>
+                        <div id="biliCollectionStatus" class="status-box">尚未发布。</div>
+                        <div id="biliCollectionInfo" class="mini-list" hidden></div>
+                    </div>
                 </section>
             </div>
 

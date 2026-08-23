@@ -16,6 +16,7 @@
 | 重叠片段合并 | 歌中长间奏导致的重复/重叠切片自动融合为一个连续片段 |
 | 自动化 | 对接 BililiveRecorder Webhook：直播结束自动提取 → 识别 → 命名 → 清理原录播 |
 | B 站投稿 | 对接 biliup：歌切转码投稿 B 站，标题/简介/标签模板化 |
+| 合集发布 | 识别出的歌切一键批量投稿并归入 B 站合集（自动创建合集、复用已有合集、BV 号自动归档） |
 | 播放器/后台 | 前台歌切播放器（分类/搜索），后台管理（提取参数、录播导入、投稿配置） |
 
 ## 系统架构
@@ -42,6 +43,7 @@ BililiveRecorder ──FileClosed Webhook──▶ FastAPI (main.py)
 | `songcut_automation.py` | ACRCloud 指纹识别、指纹边界对齐、串烧拆分、真唱门控、Whisper 歌词识别、识别缓存 |
 | `brec_integration.py` | BililiveRecorder API/Webhook 接入与录播扫描 |
 | `bili_upload_integration.py` | biliup 命令行封装与 B 站投稿配置 |
+| `bili_season_integration.py` | B 站合集管理（创作中心 API）：列表/创建/归档视频、批量发布编排 |
 | `demucs_runner.py` | Demucs 人声分离运行器（含短输入补丁，供扩展使用） |
 | `static/` `admin_views/` `private_views/` | 前台播放器与管理后台页面 |
 
@@ -191,7 +193,9 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 | POST | `/api/brec/webhook` | BililiveRecorder 事件回调（FileClosed 触发自动提取） |
 | GET | `/api/brec/summary` | 录播姬配置/房间/最近录播 |
 | POST | `/api/brec/config`, `/api/brec/import` | 保存录播姬配置、手动导入指定录播 |
-| POST | `/api/bili-upload/*` | 投稿配置/cookies 上传/触发投稿 |
+| POST | `/api/bili-upload/upload` | 单个歌切投稿（biliup） |
+| GET | `/api/bili-upload/seasons` | 列出账号下已有的 B 站合集 |
+| POST | `/api/bili-upload/publish-collection` | 批量投稿勾选的歌切并归入同一合集（`paths` + `season_title`/`season_id`，不存在时自动创建，封面取首个视频） |
 | GET | `/api/audio-list` `、`/api/categories | 原有音频库（分类短音频） |
 
 提取接口返回体包含每个片段的 `start/end`、识别结果、`aligned_by`、`alignment_shift_*`（对齐修正量）与顶层 `recognized_count`/`aligned_count`，便于观察识别与对齐效果。
@@ -204,6 +208,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - 录播姬接入配置（API 地址、自动提取开关、Webhook 地址展示）
 - 歌切库管理（试听、重命名——未识别片段的人工兜底入口）
 - B 站投稿配置与触发
+- 合集发布：歌切列表勾选（含"全选已识别"），选择已有合集或按标题新建，一键批量投稿并归档
 
 ## 测试
 

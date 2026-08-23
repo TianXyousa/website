@@ -53,6 +53,11 @@ from bili_upload_integration import (
     save_uploaded_cookie,
     upload_songcut_video,
 )
+from bili_season_integration import (
+    BiliSeasonError,
+    list_seasons,
+    publish_songcut_collection,
+)
 from gpu_songcut_extractor import describe_gpu_model_backend
 from songcut_automation import (
     SongRecognition,
@@ -199,6 +204,13 @@ class BiliUploadConfigPayload(BaseModel):
 
 class BiliUploadSongcutPayload(BaseModel):
     path: str
+
+
+class BiliPublishCollectionPayload(BaseModel):
+    paths: list[str]
+    season_title: str = ""
+    season_id: Optional[int] = None
+    create_if_missing: bool = True
 
 
 def ensure_directories() -> None:
@@ -945,12 +957,16 @@ def scan_songcuts(category: Optional[str] = None, search: Optional[str] = None) 
         if search_term and search_term not in title.casefold() and search_term not in relative_text:
             continue
 
+        metadata = read_segment_metadata(path) or {}
         result.setdefault(track_category, []).append(
             {
                 "filename": path.name,
                 "title": title,
                 "path": build_asset_url("assets", "songcuts", *parts),
                 "category": track_category,
+                "recognized": bool(metadata.get("recognition_title")),
+                "recognized_title": metadata.get("recognition_title", ""),
+                "recognized_artist": metadata.get("recognition_artist", ""),
             }
         )
 
@@ -1289,6 +1305,46 @@ async def upload_songcut_to_bili(
         )
         return result
     except BiliUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/bili-upload/seasons")
+async def get_bili_seasons(_: str = Depends(verify_admin_access)):
+    config = current_bili_upload_config()
+    if not config.cookie_file.strip() or not Path(config.cookie_file).expanduser().exists():
+        raise HTTPException(status_code=400, detail="没有找到 cookies.json，请先在后台上传 B 站登录文件。")
+    try:
+        seasons = list_seasons(Path(config.cookie_file).expanduser())
+        return {"status": "success", "seasons": seasons}
+    except (BiliSeasonError, BiliUploadError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/bili-upload/publish-collection")
+async def publish_songcut_collection_endpoint(
+    payload: BiliPublishCollectionPayload,
+    _: str = Depends(verify_admin_access),
+):
+    config = current_bili_upload_config()
+    brec_config = current_brec_config()
+
+    try:
+        songcut_root = SONGCUT_DIR.resolve(strict=False)
+        songcut_paths = [resolve_songcut_path(songcut_root, raw_path) for raw_path in payload.paths]
+    except BiliUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        return publish_songcut_collection(
+            songcut_paths=songcut_paths,
+            config=config,
+            ffmpeg_path=brec_config.ffmpeg_path or None,
+            temp_root=BILI_UPLOAD_TEMP_DIR,
+            season_title=payload.season_title,
+            season_id=payload.season_id,
+            create_if_missing=payload.create_if_missing,
+        )
+    except (BiliSeasonError, BiliUploadError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

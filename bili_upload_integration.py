@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from tempfile import mkdtemp
 from typing import Any, Optional
+from urllib.parse import unquote
 
 from songcut_extractor import (
     extract_date_label,
@@ -141,17 +142,37 @@ def save_uploaded_cookie(upload_root: Path, filename: str, content: bytes) -> Pa
 
 
 def resolve_songcut_path(songcut_root: Path, raw_path: str) -> Path:
-    relative_text = raw_path.strip().replace("\\", "/").lstrip("/")
-    if relative_text.startswith("assets/songcuts/"):
-        relative_text = relative_text.replace("assets/songcuts/", "", 1)
-    candidate = (songcut_root / relative_text).resolve(strict=False)
-    try:
-        candidate.relative_to(songcut_root.resolve(strict=False))
-    except ValueError as exc:
-        raise BiliUploadError("歌切路径超出了 songcuts 目录。") from exc
-    if not candidate.is_file():
-        raise BiliUploadError(f"找不到歌切文件: {candidate}")
-    return candidate
+    """Resolve a songcut reference from the API/前端 (URL path or plain path).
+
+    The /api/songcuts list and extract results return URL-quoted paths
+    (Chinese category/file names become %XX sequences), so try the raw text
+    first and fall back to the percent-decoded form.
+    """
+
+    def try_resolve(text: str) -> Optional[Path]:
+        relative_text = text.strip().replace("\\", "/").lstrip("/")
+        if relative_text.startswith("assets/songcuts/"):
+            relative_text = relative_text.replace("assets/songcuts/", "", 1)
+        if not relative_text:
+            return None
+        candidate = (songcut_root / relative_text).resolve(strict=False)
+        try:
+            candidate.relative_to(songcut_root.resolve(strict=False))
+        except ValueError:
+            return None
+        return candidate if candidate.is_file() else None
+
+    for text in (raw_path, unquote(raw_path)):
+        candidate = try_resolve(text)
+        if candidate is not None:
+            return candidate
+
+    decoded = unquote(raw_path)
+    if decoded != raw_path:
+        attempted = f"{raw_path} 或 {decoded}"
+    else:
+        attempted = raw_path
+    raise BiliUploadError(f"找不到歌切文件: {attempted}")
 
 
 def prepare_songcut_video_for_upload(

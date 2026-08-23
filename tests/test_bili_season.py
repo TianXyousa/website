@@ -14,7 +14,7 @@ from bili_season_integration import (
     parse_cookie_pairs,
     publish_songcut_collection,
 )
-from bili_upload_integration import BiliUploadConfig, BiliUploadError
+from bili_upload_integration import BiliUploadConfig, BiliUploadError, resolve_songcut_path
 
 
 def write_cookie_file(tmp: Path, payload) -> Path:
@@ -295,3 +295,34 @@ class PublishCollectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResolveSongcutPathTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        target = self.root / "试运行-0823" / "夏夜晚风 - 伍佰 & China Blue.mp3"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"x")
+        self.target = target
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_resolves_url_quoted_chinese_path(self):
+        from urllib.parse import quote
+
+        quoted = quote(str(self.target.relative_to(self.root)))
+        resolved = resolve_songcut_path(self.root, f"/assets/songcuts/{quoted}")
+        self.assertEqual(resolved, self.target.resolve(strict=False))
+
+    def test_resolves_plain_path(self):
+        resolved = resolve_songcut_path(self.root, str(self.target.relative_to(self.root)))
+        self.assertEqual(resolved, self.target.resolve(strict=False))
+
+    def test_missing_file_lists_both_attempts(self):
+        with self.assertRaises(BiliUploadError) as ctx:
+            resolve_songcut_path(self.root, "%E4%B8%8D%E5%AD%98%E5%9C%A8.mp3")
+        self.assertIn("不存在", str(ctx.exception))

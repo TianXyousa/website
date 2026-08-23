@@ -57,3 +57,14 @@ temp/
 # Runtime data
 data/
 .brec_integration.json
+.song_recognition_cache.json
+
+# Runtime manifests
+.processed_recordings.json
+
+# Generated songcut audio/metadata (runtime output, not source)
+assets/songcuts/
+
+# Local tooling state and vendored reference projects
+.omx/
+_tmp_bili_music_segmenter/

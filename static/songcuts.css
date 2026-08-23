@@ -187,7 +187,8 @@ h1 {
 
 button,
 input,
-select {
+select,
+textarea {
     font: inherit;
 }
 
@@ -234,13 +235,19 @@ button:disabled {
 }
 
 input,
-select {
+select,
+textarea {
     width: 100%;
     padding: 12px 14px;
     border-radius: 16px;
     border: 1px solid var(--border);
     background: rgba(255, 255, 255, 0.86);
     color: var(--text-main);
+}
+
+textarea {
+    resize: vertical;
+    min-height: 110px;
 }
 
 .checkbox-field {
@@ -305,6 +312,13 @@ select {
     border-radius: 18px;
     border: 1px solid rgba(68, 90, 108, 0.1);
     background: rgba(255, 255, 255, 0.82);
+}
+
+.inline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
 }
 
 .badge-row {

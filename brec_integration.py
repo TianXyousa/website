@@ -37,12 +37,13 @@ class BrecConfig:
     auto_extract: bool = False
     auto_category: str = "录播姬自动提取"
     ffmpeg_path: str = ""
+    extraction_mode: str = "classic"
     output_format: str = "mp3"
     min_duration: float = 60.0
-    max_silence: float = 2.8
-    leading_padding: float = 1.5
+    max_silence: float = 6.0
+    leading_padding: float = 6.0
     trailing_padding: float = 2.5
-    min_active_ratio: float = 0.58
+    min_active_ratio: float = 0.45
 
     @classmethod
     def from_dict(cls, data: Optional[dict[str, Any]]) -> "BrecConfig":
@@ -62,6 +63,8 @@ class BrecConfig:
         payload["webhook_secret"] = self.webhook_secret.strip()
         payload["auto_category"] = self.auto_category.strip() or "录播姬自动提取"
         payload["ffmpeg_path"] = self.ffmpeg_path.strip()
+        payload["extraction_mode"] = (self.extraction_mode or "classic").strip().lower() or "classic"
+        payload["output_format"] = (self.output_format or "mp3").strip().lower() or "mp3"
         return payload
 
 
@@ -87,6 +90,7 @@ def load_brec_config(path: Path) -> BrecConfig:
 
 
 def save_brec_config(path: Path, config: BrecConfig) -> BrecConfig:
+    path.parent.mkdir(parents=True, exist_ok=True)
     config = BrecConfig.from_dict(config.to_dict())
     path.write_text(json.dumps(config.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
     return config
@@ -109,7 +113,7 @@ def path_is_within(path: Path, root: Path) -> bool:
 def resolve_recording_path(config: BrecConfig, relative_path: str) -> Path:
     workdir = resolve_workdir(config)
     if workdir is None:
-        raise BrecIntegrationError("还没有设置录播姬工作目录。")
+        raise BrecIntegrationError("还没有配置录播姬工作目录。")
     if not workdir.exists():
         raise BrecIntegrationError(f"录播姬工作目录不存在: {workdir}")
 

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -12,7 +12,7 @@
         <section class="hero-card">
             <p class="eyebrow">Songcuts Admin</p>
             <h1>歌切后台管理</h1>
-            <p class="hero-copy">这里用于配置 BililiveRecorder、导入录播、自动切歌，以及查看 ACRCloud 识曲和录播清理状态。这个页面不会对普通用户公开。</p>
+            <p class="hero-copy">这里用于配置 BililiveRecorder、导入录播、自动切歌，以及查看 ACRCloud 识曲、录播清理和 B 站投稿状态。这个页面不会对普通用户公开。</p>
             <div class="hero-actions">
                 <a class="chip-link" href="/songcuts.html">查看公开播放器</a>
                 <form method="post" action="/admin/logout">
@@ -177,6 +177,77 @@
                     <div id="extractStatus" class="status-box">等待上传直播录播文件。</div>
                     <div id="extractResults" class="extract-results" hidden></div>
                 </section>
+
+                <section class="card extractor-card">
+                    <div class="card-heading">
+                        <div>
+                            <p class="panel-kicker">Bilibili</p>
+                            <h3>投稿配置</h3>
+                        </div>
+                        <div class="card-actions">
+                            <button id="saveBiliUploadConfigButton" type="button">保存投稿配置</button>
+                            <button id="uploadBiliCookieButton" type="button" class="secondary-button">上传 cookies.json</button>
+                        </div>
+                    </div>
+
+                    <div class="extract-form">
+                        <div class="field">
+                            <label for="biliUploaderPathInput">上传命令</label>
+                            <input id="biliUploaderPathInput" type="text" value="biliup" placeholder="默认 biliup">
+                        </div>
+
+                        <div class="field">
+                            <label for="biliTidInput">投稿分区 ID</label>
+                            <input id="biliTidInput" type="number" min="1" step="1" value="31">
+                        </div>
+
+                        <div class="field field-full">
+                            <label for="biliCookiePathInput">当前 cookies.json</label>
+                            <input id="biliCookiePathInput" type="text" readonly placeholder="还没有上传 cookies.json">
+                        </div>
+
+                        <div class="field field-full">
+                            <label for="biliCookieFileInput">上传新的 cookies.json</label>
+                            <input id="biliCookieFileInput" type="file" accept=".json,application/json">
+                        </div>
+
+                        <div class="field field-full">
+                            <label for="biliTitleTemplateInput">标题模板</label>
+                            <input id="biliTitleTemplateInput" type="text" value="{title}" placeholder="可用变量：{title} {artist} {recording_date}">
+                        </div>
+
+                        <div class="field field-full">
+                            <label for="biliDescTemplateInput">简介模板</label>
+                            <textarea id="biliDescTemplateInput" rows="4" placeholder="可用变量：{title} {artist} {recording_date} {start_label} {end_label} {source_name}"></textarea>
+                        </div>
+
+                        <div class="field field-full">
+                            <label for="biliTagsInput">标签</label>
+                            <input id="biliTagsInput" type="text" value="直播切片,翻唱" placeholder="多个标签用逗号分隔">
+                        </div>
+
+                        <div class="field">
+                            <label for="biliCopyrightInput">投稿类型</label>
+                            <select id="biliCopyrightInput">
+                                <option value="2">转载</option>
+                                <option value="1">自制</option>
+                            </select>
+                        </div>
+
+                        <div class="field">
+                            <label for="biliSourceInput">转载来源</label>
+                            <input id="biliSourceInput" type="text" placeholder="转载时建议填写直播间或主页链接">
+                        </div>
+
+                        <div class="field field-full">
+                            <label for="biliDynamicTemplateInput">动态文案</label>
+                            <input id="biliDynamicTemplateInput" type="text" placeholder="可留空，支持和标题相同的变量">
+                        </div>
+                    </div>
+
+                    <div id="biliUploadStatus" class="status-box">等待读取 B 站投稿配置。</div>
+                    <div id="biliUploadInfo" class="mini-list" hidden></div>
+                </section>
             </div>
 
             <div class="panel playlist-panel">
@@ -212,5 +283,3 @@
     <script src="/songcuts-admin.js"></script>
 </body>
 </html>
-
-

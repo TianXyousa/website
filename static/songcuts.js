@@ -1,4 +1,4 @@
-document.addEventListener("DOMContentLoaded", () => {
+﻿document.addEventListener("DOMContentLoaded", () => {
     const player = document.getElementById("mainPlayer");
     const currentTitle = document.getElementById("currentTitle");
     const currentMeta = document.getElementById("currentMeta");
@@ -16,9 +16,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const PLAYBACK_MODE_STORAGE_KEY = "songcuts-playback-mode";
     const playbackModeText = {
-        pause: "播完暂停",
-        next: "播完自动下一首",
-        random: "播完随机播放",
+        pause: "播放完暂停",
+        next: "播放完自动下一首",
+        random: "播放完随机播放",
     };
 
     let allSongs = [];

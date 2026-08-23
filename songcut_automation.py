@@ -150,7 +150,7 @@ def describe_recognition_provider() -> dict[str, Any]:
             "whisper_model": os.getenv("SONGCUT_WHISPER_MODEL", "medium").strip() or "small",
             "whisper_available": _python_module_available("faster_whisper"),
             "min_match": parse_float_env("SONGCUT_LYRIC_MIN_MATCH", 0.55),
-            "max_windows": max(1, parse_int_env("SONGCUT_LYRIC_MAX_WINDOWS", 3)),
+            "max_windows": max(1, parse_int_env("SONGCUT_LYRIC_MAX_WINDOWS", 4)),
             "window_seconds": max(20.0, parse_float_env("SONGCUT_LYRIC_WINDOW_SECONDS", 45.0)),
         },
     }
@@ -1316,7 +1316,7 @@ def collect_lyric_transcripts(
     duration: float,
     ffmpeg_path: str,
 ) -> list[str]:
-    max_windows = max(1, parse_int_env("SONGCUT_LYRIC_MAX_WINDOWS", 3))
+    max_windows = max(1, parse_int_env("SONGCUT_LYRIC_MAX_WINDOWS", 4))
     window = max(20.0, parse_float_env("SONGCUT_LYRIC_WINDOW_SECONDS", 45.0))
     if duration <= 0:
         return []
@@ -1325,7 +1325,7 @@ def collect_lyric_transcripts(
         positions = [max(0.0, duration * 0.15)]
     else:
         positions = []
-        for fraction in (0.12, 0.45, 0.78)[:max_windows]:
+        for fraction in (0.15, 0.40, 0.65, 0.85)[:max_windows]:
             position = duration * fraction
             if position + window <= duration:
                 positions.append(position)
@@ -1361,20 +1361,40 @@ def collect_lyric_transcripts(
 
 
 def transcribe_with_whisper(sample_path: Path) -> Optional[str]:
+    """Transcribe one window; falls back to no-VAD when VAD eats the vocals.
+
+    The Silero VAD shipped with faster-whisper is trained on speech, so melodic
+    or melismatic singing is routinely classified as non-speech and dropped
+    (observed: 40.6s removed from a 45s window of real singing). When the VAD
+    pass leaves too little text, retry the same window without the filter -
+    the strict lyric containment check downstream rejects any hallucinations
+    the unfiltered pass may produce.
+    """
     model = _get_whisper_model()
     if model is None:
         return None
-    try:
-        segments, _info = model.transcribe(
-            str(sample_path),
-            beam_size=5,
-            condition_on_previous_text=False,
-            vad_filter=True,
-        )
-        text = "".join(segment.text for segment in segments).strip()
-        return text or None
-    except Exception:
-        return None
+
+    def run(vad_filter: bool) -> Optional[str]:
+        try:
+            segments, _info = model.transcribe(
+                str(sample_path),
+                beam_size=5,
+                condition_on_previous_text=False,
+                vad_filter=vad_filter,
+            )
+            return "".join(segment.text for segment in segments).strip() or None
+        except Exception:
+            return None
+
+    text = run(vad_filter=True)
+    if text and has_enough_lyric_content(text):
+        return text
+
+    relaxed = run(vad_filter=False)
+    # Prefer whichever pass produced more usable text.
+    if relaxed and (not text or len(normalize_lyric_text(relaxed)) > len(normalize_lyric_text(text))):
+        return relaxed
+    return text
 
 
 def _get_whisper_model() -> Any:
@@ -1523,6 +1543,13 @@ def clean_display_artist(name: str) -> str:
     return cleaned or name.strip()
 
 
+def clean_transcript_for_search(transcript: str) -> str:
+    """Strip Whisper hallucination tags (e.g. ["Piano Concerto..."], 【字幕by...】)."""
+    text = re.sub(r"\[[^\]]*\]", " ", transcript)
+    text = re.sub(r"【[^】]*】", " ", text)
+    return text.strip()
+
+
 def build_lyric_queries(transcript: str) -> list[str]:
     """Split a transcript into short, lookup-friendly fragments.
 
@@ -1531,7 +1558,7 @@ def build_lyric_queries(transcript: str) -> list[str]:
     6-10 words for latin) have a much better chance of containing one correctly
     transcribed run; the strict containment scoring later guards the result.
     """
-    text = unicodedata.normalize("NFKC", transcript).strip()
+    text = clean_transcript_for_search(unicodedata.normalize("NFKC", transcript)).strip()
     if not text:
         return []
 
@@ -1541,6 +1568,10 @@ def build_lyric_queries(transcript: str) -> list[str]:
 
     queries: list[str] = []
     if cjk_char_ratio(text) >= 0.3:
+        # Only CJK-dominant pieces: instrumental windows make Whisper
+        # hallucinate Latin/classical-music titles that pollute retrieval.
+        cjk_pieces = [piece for piece in pieces if cjk_char_ratio(piece) >= 0.4]
+
         # Prefer mid-length CJK pieces: long ones carry more misheard chars,
         # tiny ones match too many songs.
         def piece_rank(piece: str) -> tuple[int, int]:
@@ -1548,13 +1579,13 @@ def build_lyric_queries(transcript: str) -> list[str]:
             distance = abs(length - 14)
             return (distance, -length)
 
-        for piece in sorted(pieces, key=piece_rank):
+        for piece in sorted(cjk_pieces, key=piece_rank):
             compact = piece.replace(" ", "")
             if 8 <= len(compact) <= 30 and piece not in queries:
                 queries.append(piece)
-        # Fallback: sliding windows over the longest piece.
-        if not queries:
-            longest = max(pieces, key=lambda p: len(p.replace(" ", ""))).replace(" ", "")
+        # Fallback: sliding windows over the longest CJK piece.
+        if not queries and cjk_pieces:
+            longest = max(cjk_pieces, key=lambda p: len(p.replace(" ", ""))).replace(" ", "")
             for start in range(0, max(1, len(longest) - 8), 6):
                 chunk = longest[start : start + 14]
                 if len(chunk) >= 8:

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from songcut_automation import (
     LyricCandidate,
+    build_lyric_queries,
     cjk_lyric_containment,
     find_lyric_match,
     has_enough_lyric_content,
@@ -82,6 +83,32 @@ class ContentGateTests(LyricEnvTestCase):
     def test_long_texts_accepted(self):
         self.assertTrue(has_enough_lyric_content("one two three four five six seven eight"))
         self.assertTrue(has_enough_lyric_content("夜に駆けるスピードで誰も止められない未来的な音乐"))
+
+
+class BuildLyricQueriesTests(LyricEnvTestCase):
+    def test_hallucination_brackets_stripped(self):
+        # Regression (夏夜晚风 case): instrumental windows make Whisper emit
+        # bracketed hallucinations like ["Piano Concerto..."] that must never
+        # become search queries.
+        transcript = '["Piano Concerto in D minor, Op. 3"] 燈火旋著雨波 隨著你的呼吸一動 你說你笑如夢'
+        queries = build_lyric_queries(transcript)
+        self.assertTrue(queries)
+        for query in queries:
+            self.assertNotIn("Piano", query)
+            self.assertNotIn("[", query)
+        self.assertTrue(any("燈火" in query for query in queries))
+
+    def test_cjk_transcript_drops_latin_fragments(self):
+        queries = build_lyric_queries("说话内容这里有一段中文歌词，随风把帆吹动，Piano Concerto in D minor Op. 3")
+        self.assertTrue(queries)
+        for query in queries:
+            self.assertNotIn("Piano", query)
+            self.assertNotIn("Concerto", query)
+
+    def test_full_width_brackets_stripped(self):
+        queries = build_lyric_queries("【字幕by索兰娅】讓你在我耳邊細語夏夜晚風的愛")
+        self.assertTrue(queries)
+        self.assertNotIn("字幕", queries[0])
 
 
 class FindLyricMatchTests(LyricEnvTestCase):

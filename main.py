@@ -98,6 +98,24 @@ SONGCUT_DIR = ASSETS_DIR / "songcuts"
 STATIC_DIR = BASE_DIR / "static"
 ADMIN_VIEWS_DIR = BASE_DIR / "admin_views"
 PRIVATE_VIEWS_DIR = BASE_DIR / "private_views"
+
+
+def load_dotenv_file(path: Path) -> None:
+    """Load .env values as defaults so local runs match docker-compose behaviour."""
+    if not path.exists():
+        return
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    except OSError:
+        pass
+
+
+load_dotenv_file(BASE_DIR / ".env")
 BREC_CONFIG_PATH = Path(os.getenv("BREC_CONFIG_PATH", str(BASE_DIR / ".brec_integration.json")))
 PROCESSED_RECORDINGS_PATH = Path(
     os.getenv("PROCESSED_RECORDINGS_PATH", str(BASE_DIR / ".processed_recordings.json"))

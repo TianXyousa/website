@@ -1243,6 +1243,7 @@ def looks_like_singing(activity: Any) -> bool:
 LYRIC_PROVIDER = "lyrics"
 
 _WHISPER_MODEL: Any = None
+_WHISPER_DEVICE_RESOLVED: str = ""
 
 
 @dataclass
@@ -1378,7 +1379,7 @@ def transcribe_with_whisper(sample_path: Path) -> Optional[str]:
 
 def _get_whisper_model() -> Any:
     """Load the Whisper model once; None means unavailable (skip silently)."""
-    global _WHISPER_MODEL
+    global _WHISPER_MODEL, _WHISPER_DEVICE_RESOLVED
     if _WHISPER_MODEL is not None:
         return _WHISPER_MODEL or None
 
@@ -1398,15 +1399,66 @@ def _get_whisper_model() -> Any:
         except Exception:
             device = "cpu"
     compute_type = os.getenv("SONGCUT_WHISPER_COMPUTE_TYPE", "").strip()
-    if not compute_type:
-        compute_type = "float16" if device == "cuda" else "int8"
 
+    if device == "cuda":
+        model = _load_whisper(WhisperModel, name, "cuda", compute_type or "float16")
+        if model is not None and _cuda_model_self_check(model):
+            _WHISPER_MODEL = model
+            _WHISPER_DEVICE_RESOLVED = "cuda"
+            return model
+        # Broken CUDA runtime (e.g. missing cuBLAS): inference there hangs or
+        # crashes instead of raising at load time, so fall back to CPU.
+        print("[songcuts] whisper CUDA unusable, falling back to cpu", flush=True)
+        device = "cpu"
+
+    _WHISPER_MODEL = _load_whisper(WhisperModel, name, "cpu", compute_type or "int8")
+    _WHISPER_DEVICE_RESOLVED = "cpu" if _WHISPER_MODEL is not None else ""
+    return _WHISPER_MODEL
+
+
+def _load_whisper(whisper_cls: Any, name: str, device: str, compute_type: str) -> Any:
     try:
-        _WHISPER_MODEL = WhisperModel(name, device=device, compute_type=compute_type)
+        return whisper_cls(name, device=device, compute_type=compute_type)
     except Exception as exc:
         print(f"[songcuts] whisper model load failed ({name}/{device}): {exc}", flush=True)
-        _WHISPER_MODEL = False
-    return _WHISPER_MODEL or None
+        return None
+
+
+def _cuda_model_self_check(model: Any, timeout_seconds: float = 60.0) -> bool:
+    """Run a tiny real inference to prove the CUDA runtime actually works.
+
+    A machine can expose a CUDA device yet lack cuBLAS/cuDNN libraries; loading
+    succeeds there but the first inference deadlocks forever. Probe with a
+    snippet of silence under a thread timeout so we can fall back safely.
+    """
+    import threading
+
+    try:
+        with mkdtemp(prefix="whisper-probe-") as _tmp:
+            probe_path = Path(_tmp) / "probe.wav"
+            with wave.open(str(probe_path), "wb") as probe_wav:
+                probe_wav.setnchannels(1)
+                probe_wav.setsampwidth(2)
+                probe_wav.setframerate(16000)
+                probe_wav.writeframes(bytes(9600))  # 0.3s silence
+    except Exception:
+        return False
+
+    result: dict[str, bool] = {}
+
+    def run() -> None:
+        try:
+            segments, _info = model.transcribe(str(probe_path), beam_size=1)
+            for _ in segments:
+                pass
+            result["ok"] = True
+        except Exception:
+            result["ok"] = False
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(timeout_seconds)
+    return bool(result.get("ok"))
 
 
 def find_lyric_match(transcripts: list[str]) -> Optional[tuple[str, str, float, int]]:

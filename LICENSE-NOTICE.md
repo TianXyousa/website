@@ -19,6 +19,10 @@ logos, or other third-party media and runtime data. Those materials remain
 subject to the rights and terms of their respective owners unless an explicit
 license notice says otherwise.
 
+The repository intentionally does not include the site's former background
+images or favicon. Deployments should only add replacement media when the
+operator has verified the necessary copyright permissions and attribution.
+
 Generated files and local credentials are runtime data rather than licensed
 project source. They must not be committed to the repository.
 

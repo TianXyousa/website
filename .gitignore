@@ -36,6 +36,10 @@ out/
 .DS_Store
 Thumbs.db
 
+# Locally supplied copyrighted branding media (not distributed by this repo)
+static/favicon.png
+static/background*.png
+
 # Logs
 *.log
 npm-debug.log*

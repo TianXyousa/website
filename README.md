@@ -277,4 +277,13 @@ classic 快速能量分段，同时让歌词识别走 GPU Whisper。
 
 ## 许可证
 
-GPL-3.0，见 [LICENSE](LICENSE)。
+本项目原创源代码采用 **GNU General Public License v3.0 only** 发布，SPDX 标识为
+`GPL-3.0-only`。
+
+Copyright (C) 2025-2026 TianXyousa
+
+完整条款见 [LICENSE](LICENSE)，项目授权范围见 [LICENSE-NOTICE.md](LICENSE-NOTICE.md)，
+第三方组件许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+仓库中的音频、录播、歌曲切片、模型权重、二维码、封面及其他第三方媒体不因与源码一同出现
+而自动获得 GPL 授权；使用或再分发这些内容前，请确认你拥有相应权利。

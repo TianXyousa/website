@@ -1,0 +1,6 @@
+FROM bililive/recorder:latest
+
+COPY recorder-entrypoint.sh /usr/local/bin/website-recorder-entrypoint.sh
+RUN chmod +x /usr/local/bin/website-recorder-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/website-recorder-entrypoint.sh"]

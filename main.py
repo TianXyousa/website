@@ -129,6 +129,7 @@ BILI_UPLOAD_COOKIE_DIR = Path(
 BILI_UPLOAD_TEMP_DIR = Path(
     os.getenv("BILI_UPLOAD_TEMP_DIR", str(BASE_DIR / "data" / "app" / "bili_upload_temp"))
 )
+BREC_WEBHOOK_BASE_URL = os.getenv("BREC_WEBHOOK_BASE_URL", "").strip().rstrip("/")
 
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 UPLOAD_PASSWORD = os.getenv("UPLOAD_PASSWORD", "")
@@ -250,6 +251,8 @@ def current_brec_config() -> BrecConfig:
         workdir=os.getenv("BREC_DEFAULT_WORKDIR", config.workdir),
         api_username=os.getenv("BREC_DEFAULT_API_USERNAME", config.api_username),
         api_password=os.getenv("BREC_DEFAULT_API_PASSWORD", config.api_password),
+        webhook_secret=os.getenv("BREC_DEFAULT_WEBHOOK_SECRET", config.webhook_secret),
+        auto_extract=parse_bool_env("BREC_DEFAULT_AUTO_EXTRACT", config.auto_extract),
         auto_category=os.getenv("BREC_DEFAULT_AUTO_CATEGORY", config.auto_category),
         ffmpeg_path=os.getenv("BREC_DEFAULT_FFMPEG_PATH", config.ffmpeg_path),
         output_format=os.getenv("BREC_DEFAULT_OUTPUT_FORMAT", config.output_format),
@@ -1050,7 +1053,9 @@ def build_brec_summary(request: Request) -> dict[str, Any]:
         "api": api_summary,
         "recordings": recent_files,
         "supported_media_extensions": list(SUPPORTED_MEDIA_EXTENSIONS),
-        "webhook_url": build_webhook_url(str(request.base_url).rstrip("/"), config.webhook_secret),
+        "webhook_url": build_webhook_url(
+            BREC_WEBHOOK_BASE_URL or str(request.base_url).rstrip("/"), config.webhook_secret
+        ),
         "automation": {
             "recognition": describe_recognition_provider(),
             "cleanup": describe_recording_cleanup(),

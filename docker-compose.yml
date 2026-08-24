@@ -18,7 +18,10 @@ services:
       BREC_DEFAULT_WORKDIR: /recorder-data
       BREC_DEFAULT_API_USERNAME: ${BREC_HTTP_BASIC_USER:-admin}
       BREC_DEFAULT_API_PASSWORD: ${BREC_HTTP_BASIC_PASS:-}
+      BREC_DEFAULT_AUTO_EXTRACT: ${BREC_DEFAULT_AUTO_EXTRACT:-true}
       BREC_DEFAULT_AUTO_CATEGORY: ${BREC_DEFAULT_AUTO_CATEGORY:-录播姬自动提取}
+      BREC_DEFAULT_WEBHOOK_SECRET: ${BREC_WEBHOOK_SECRET:-}
+      BREC_WEBHOOK_BASE_URL: ${BREC_WEBHOOK_BASE_URL:-http://app:8000}
       BREC_DEFAULT_OUTPUT_FORMAT: mp3
       ACRCLOUD_HOST: ${ACRCLOUD_HOST:-}
       ACRCLOUD_ACCESS_KEY: ${ACRCLOUD_ACCESS_KEY:-}
@@ -82,13 +85,17 @@ services:
       - recorder
 
   recorder:
-    image: bililive/recorder:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.recorder
+    image: website-recorder:latest
     container_name: bililive-recorder
     restart: unless-stopped
     command: ["run", "--bind", "http://*:2356", "/rec"]
     environment:
       BREC_HTTP_BASIC_USER: ${BREC_HTTP_BASIC_USER:-admin}
       BREC_HTTP_BASIC_PASS: ${BREC_HTTP_BASIC_PASS:-}
+      BREC_WEBHOOK_URL: ${BREC_WEBHOOK_URL:-http://app:8000/api/brec/webhook}
     ports:
       - "127.0.0.1:2356:2356"
     volumes:

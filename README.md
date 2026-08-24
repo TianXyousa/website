@@ -99,6 +99,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `ADMIN_USERNAME` / `UPLOAD_PASSWORD` | admin / 必填 | 后台登录与 API 密钥（`X-API-Key`） |
+| `BREC_DEFAULT_AUTO_EXTRACT` | true（Docker） | 录播文件关闭后自动提取歌切 |
+| `BREC_WEBHOOK_BASE_URL` / `BREC_WEBHOOK_URL` | `http://app:8000` / `http://app:8000/api/brec/webhook`（Docker） | 录播姬容器访问应用的内部 Webhook 地址 |
 | `BREC_DEFAULT_AUTO_CATEGORY` | 录播姬自动提取 | 自动提取的歌切分类名 |
 | `SONG_RECOGNITION_CACHE_PATH` | .song_recognition_cache.json | 识别结果缓存（按文件内容哈希） |
 
